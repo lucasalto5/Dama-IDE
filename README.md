@@ -119,4 +119,4 @@ npm run build
 - Git mutável, execução de plugins, extração de arquivos compactados e adaptadores de CLI ainda não fazem parte do loop.
 - Ainda não há instalador assinado.
 
-Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para as próximas camadas.
+Veja [ARCHITECTURE.md](ARCHITECTURE.md) para as próximas camadas.
