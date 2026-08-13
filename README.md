@@ -1,8 +1,16 @@
 # Dama
 
 Dama é uma IDE agêntica desktop e independente de modelo. Ela conecta APIs diretas e modelos locais a um workspace que entende projetos, propõe planos, edita arquivos e executa ferramentas com aprovação explícita.
-Discord: https://discord.gg/3cV3BwyNAE
-## Marco atual — 0.8.0
+
+[Baixar a versão mais recente](https://github.com/lucasalto5/Dama-IDE/releases/latest) · [Discord](https://discord.gg/3cV3BwyNAE) · Licença MIT
+
+## Escopo open source
+
+Este repositório contém a IDE desktop, interface, runtime agêntico, ferramentas locais, instalador, testes e atualizador. Servidores hospedados, credenciais, pesos de modelos e o payload proprietário opcional da Dama AI são distribuídos separadamente e não fazem parte do código público. A IDE continua funcional com APIs compatíveis, NVIDIA NIM, Ollama e LM Studio sem esse componente.
+
+O nome e a identidade visual da Dama continuam sendo marcas do projeto; a licença MIT cobre o código-fonte.
+
+## Marco atual — 0.10.1
 
 Esta versão já possui uma primeira fatia funcional:
 
@@ -73,6 +81,9 @@ Esta versão já possui uma primeira fatia funcional:
 - configuração de temperatura, contexto, modo do agente e instruções pessoais;
 - opção para refazer o onboarding sem apagar integrações;
 - `Enter` para enviar e `Shift+Enter` para criar uma nova linha.
+- notificações nativas para autorizações pendentes e execuções longas concluídas;
+- interface em português, inglês e espanhol;
+- atualização automática pelo GitHub, com notas da versão, progresso e instalação ao iniciar.
 
 ## Segurança do MVP
 
@@ -108,6 +119,22 @@ Validar a compilação:
 npm run build
 ```
 
+Executar os testes principais:
+
+```bash
+npm run test:syntax
+npm run test:notes
+npm run test:engine
+npm run test:models
+npm run test:preview
+npm run test:json
+npm run test:updates
+```
+
+## Atualizações
+
+A versão instalada consulta `https://github.com/lucasalto5/Dama-IDE/releases/latest/download` ao iniciar. Uma release precisa conter o instalador, seu `.blockmap` e o `latest.yml`. Consulte [docs/PUBLICAR_ATUALIZACAO.md](docs/PUBLICAR_ATUALIZACAO.md).
+
 ## Limitações assumidas
 
 - O preview automático usa o script `dev` quando ele existe; sites estáticos com `index.html` usam o servidor HTTP interno da Dama.
@@ -119,4 +146,4 @@ npm run build
 - Git mutável, execução de plugins, extração de arquivos compactados e adaptadores de CLI ainda não fazem parte do loop.
 - Ainda não há instalador assinado.
 
-Veja [ARCHITECTURE.md](ARCHITECTURE.md) para as próximas camadas.
+Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para as próximas camadas.
