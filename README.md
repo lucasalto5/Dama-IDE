@@ -10,7 +10,7 @@ Este repositório contém a IDE desktop, interface, runtime agêntico, ferrament
 
 O código é **source available**, não open source segundo a definição da OSI. A licença PolyForm Perimeter 1.0.1 permite estudar, modificar e contribuir, mas proíbe oferecer a terceiros um produto que concorra com a Dama, inclusive gratuito. O nome e a identidade visual da Dama também continuam protegidos pelo projeto.
 
-## Marco atual — 0.10.2
+## Marco atual — 0.10.3
 
 Esta versão já possui uma primeira fatia funcional:
 
