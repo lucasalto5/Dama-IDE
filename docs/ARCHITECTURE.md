@@ -27,7 +27,7 @@ As gravações são restritas aos arquivos declarados no plano. Ferramentas elev
 
 O roteamento pode operar em modo de modelo único ou equipe. No modo único, o perfil principal atende Chat, planejamento, execução e revisão. No modo equipe, as chamadas são distribuídas entre Orquestrador, Programador e Revisor, com retorno automático dos problemas concretos ao Programador. A pessoa pode limitar a revisão entre zero e três rodadas; os modelos de fallback continuam sendo tentados na ordem configurada se o responsável por uma função falhar.
 
-O núcleo atual oferece 34 ferramentas: exploração e busca do workspace, recuperação de contexto, detecção da stack, regras locais, ambiente, dependências, segurança, diagnósticos e Git; criação e edição localizada, patch, cópia, movimentação e renomeação; Preview local, Terminal/PTY, instalação de pacotes, downloads, exclusões, navegador isolado, LSP e MCP. Mutações validam o caminho real para impedir fuga por links simbólicos e entram no mesmo change set reversível, incluindo arquivos binários limitados e exclusões. Comandos perigosos amplos continuam bloqueados mesmo antes do card.
+O núcleo oferece exploração e busca do workspace, recuperação de contexto, stack, regras locais, ambiente, dependências, segurança, diagnósticos, Git completo, testes estruturados, DAP, criação e edição localizada, patch, cópia, movimentação, renomeação, Preview, Terminal/PTY, pacotes, downloads, exclusões, arquivos compactados, navegador automatizado, busca web com fontes, LSP, MCP, plugins e agentes de CLI. Caminhos são validados para impedir fuga do projeto. Leitura e navegação isoladas não pedem autorização; execução de código, mutações e envio de dados pedem.
 
 Antes de entrar no renderer, todo plano é normalizado: título, resumo, etapas, arquivos, comandos e riscos recebem tipos e valores seguros. Uma barreira de erro no workspace impede que respostas inesperadas deixem a janela vazia.
 
@@ -52,7 +52,6 @@ Ativos:
 
 Pendente:
 
-- adaptador nativo para Claude Code, Codex e OpenCode;
 - Responses API;
 - Anthropic Messages e Gemini sem camada de compatibilidade;
 
@@ -62,7 +61,7 @@ O onboarding grava somente preferências de experiência: nome local, finalidade
 
 Tokens de modelos são cifrados com `safeStorage` antes de entrar no documento. O renderer recebe apenas metadados e nunca recebe o token persistido. Se o cofre seguro não estiver disponível, modelos autenticados são testados, mas não são salvos.
 
-Os registros de MCP representam configuração real. O processo inicia a conexão stdio ou HTTP somente quando uma ferramenta MCP é autorizada e fecha sessões stdio ao concluir. Plugins continuam apenas cadastrados, sem execução de pontos de extensão.
+Os registros de MCP representam configuração real. O processo inicia a conexão stdio ou HTTP somente quando uma ferramenta MCP é autorizada e fecha sessões stdio ao concluir. Plugins habilitados podem declarar ferramentas executáveis; cada chamada de código do plugin exige autorização e recebe argumentos por JSON no stdin.
 
 ## Terminal e preview
 
@@ -72,15 +71,15 @@ Próximo passo: abas visuais para múltiplas sessões PTY, detecção de portas,
 
 ## Git
 
-O MVP lê branch e alterações e pode iniciar um repositório vazio. Checkpoints, stage, commit, restauração e visualização de diff serão adicionados depois com confirmações específicas.
+A aba Git e o agente suportam status, branches, criação e troca de branch, stage, unstage, commit, pull, push, stash, merge, conflito, abort, revert e restore. Operações com maior risco recebem confirmação adicional.
 
 ## Sequência recomendada
 
 1. Abas e watcher de arquivos.
 2. Aprovação ou recusa por hunk nas alterações do agente.
 3. Streaming e cancelamento das chamadas do modelo.
-4. Pontos de extensão de plugins.
-5. Busca web e navegador controlado interativo com fontes visíveis.
-6. Checkpoints reais e restauração Git.
-7. Adaptadores de CLI.
-8. Empacotamento, assinatura e atualizações do aplicativo.
+4. Marketplace, isolamento por processo e assinatura de plugins.
+5. Mais provedores nativos de busca e cache de fontes.
+6. DAP para JavaScript, Rust e Go sem depender de plugins.
+7. UI dedicada para suítes de teste e sessões de depuração simultâneas.
+8. Assinatura de código do instalador.

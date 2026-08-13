@@ -2,7 +2,7 @@
   "name": "dama-ide",
   "private": true,
   "type": "module",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "author": "Dama",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -24,8 +24,9 @@
     "test:preview": "node scripts/test-preview-inspector.mjs",
     "test:json": "node scripts/test-model-json.mjs",
     "test:updates": "node scripts/test-update-manager.mjs",
+    "test:professional": "node scripts/test-professional-tools.mjs && node scripts/test-request-routing.mjs",
     "verify:update": "node scripts/verify-update-release.mjs",
-    "test:syntax": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/dama-engine.cjs && node --check electron/model-catalog.cjs && node --check electron/preview-inspector.cjs && node --check electron/model-json.cjs && node --check electron/update-manager.cjs",
+    "test:syntax": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/dama-engine.cjs && node --check electron/model-catalog.cjs && node --check electron/preview-inspector.cjs && node --check electron/model-json.cjs && node --check electron/update-manager.cjs && node --check electron/professional-tools.cjs && node --check electron/request-routing.cjs",
     "preview": "vite preview",
     "package:dir": "npm run build && electron-builder --dir --win --x64",
     "package:win": "npm run test:syntax && npm run build && electron-builder --win nsis --x64"
@@ -75,7 +76,7 @@
       }
     ],
     "releaseInfo": {
-      "releaseName": "Dama 0.10.3 — teste do atualizador",
+      "releaseName": "Dama 0.11.0 — ferramentas profissionais",
       "releaseNotesFile": "build/release-notes.md"
     },
     "files": [

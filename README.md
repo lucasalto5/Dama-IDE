@@ -54,11 +54,18 @@ Esta versão já possui uma primeira fatia funcional:
 - Markdown seguro no Chat e no Agente, com títulos, listas, tabelas, citações, tarefas, links e blocos de código;
 - referências a arquivos nas mensagens abrem o editor e posicionam a linha quando ela é informada;
 - histórico ancora no conteúdo mais recente ao abrir ou retomar Chat e Agente, preservando a rolagem manual quando a pessoa sobe para ler;
-- núcleo agêntico com 34 ferramentas reais para navegar, mapear, recuperar contexto, ler regras, pesquisar texto ou regex, detectar stack, verificar ambiente e dependências, analisar segurança, diagnosticar, consultar Git, iniciar Preview, usar LSP/MCP/navegador/Terminal e editar arquivos;
+- núcleo agêntico com ferramentas reais para navegar, mapear, recuperar contexto, pesquisar a web com fontes, testar, depurar, operar Git, usar LSP/MCP/plugins/agentes de CLI/navegador/Terminal e editar arquivos;
 - Terminal/PTY persistente com ConPTY no Windows, saída progressiva, escrita, leitura e encerramento de sessões;
 - comandos de servidor como `node server.js`, `npm run dev` e `python -m http.server` migram automaticamente para PTY e não bloqueiam o chat esperando uma saída que nunca termina;
 - downloads limitados, instalação validada de pacotes e exclusões reversíveis de arquivos ou pastas;
-- navegador Electron isolado para inspecionar texto, links, títulos e controles visíveis sem acesso ao Node ou aos arquivos;
+- navegador Electron isolado para navegar, clicar, preencher, capturar screenshots e ler texto, console, rede e erros sem acesso ao Node ou aos arquivos;
+- pesquisas informativas seguem direto, inclusive sem workspace aberto, e não exibem plano de implementação;
+- cumprimentos e dúvidas gerais na aba Agente respondem sem ler o workspace nem mostrar etapas técnicas;
+- executor estruturado de Jest, Vitest, Pytest, Mocha, Cargo e Go com falhas clicáveis no editor;
+- Git completo no agente e na aba Git: branch, stage, commit, pull, push, stash, merge, conflitos, revert e restore;
+- debugger DAP para Python com breakpoints, pilha, escopos, variáveis, avaliação e execução passo a passo;
+- arquivos ZIP/TAR, runtime de ferramentas de plugins e adaptadores para Codex CLI, Claude Code, Gemini CLI e OpenCode;
+- memória automática opcional por workspace em `notes/memoria-do-projeto.md`;
 - LSP externo para símbolos, definições, referências, hover, diagnósticos e renomeação semântica reversível;
 - runtime MCP por stdio ou HTTP, com JSON-RPC e chamadas explícitas de ferramentas configuradas;
 - cards de autorização no feed com negar, permitir uma vez, permitir neste chat, neste projeto ou sempre para a operação específica;
@@ -92,7 +99,7 @@ Esta versão já possui uma primeira fatia funcional:
 - O agente só grava nos arquivos listados no plano aprovado.
 - Antes da primeira gravação em cada arquivo, a execução salva um snapshot local para permitir a recusa posterior sem exigir Git.
 - A restauração é bloqueada se o arquivo tiver sido alterado novamente depois da execução, evitando sobrescrever trabalho mais recente.
-- Terminal, PTY, instalações, downloads, exclusões, navegador, LSP e MCP passam por um card de autorização separado no próprio feed do agente.
+- Operações que executam código, alteram estado ou enviam dados passam pelo card de autorização. Pesquisa, navegação e leitura no navegador isolado não interrompem o chat.
 - Permissões persistentes podem ser revogadas em Configurações → Privacidade.
 - Tokens de modelos são criptografados por `safeStorage`; se a proteção do sistema não estiver disponível, a Dama se recusa a persistir o token.
 - Perfil, preferências, MCPs e plugins são salvos em `dama-settings.json` no diretório de dados do aplicativo.
@@ -129,6 +136,7 @@ npm run test:models
 npm run test:preview
 npm run test:json
 npm run test:updates
+npm run test:professional
 ```
 
 ## Atualizações
@@ -139,11 +147,10 @@ A versão instalada consulta `https://github.com/lucasalto5/Dama-IDE/releases/la
 
 - O preview automático usa o script `dev` quando ele existe; sites estáticos com `index.html` usam o servidor HTTP interno da Dama.
 - O loop agêntico atual requer uma API compatível com Chat Completions e tool calls.
-- O adaptador para agentes de CLI ainda está visível como indisponível, sem comportamento simulado.
-- Plugins locais podem ser cadastrados e habilitados, mas a execução de seus pontos de extensão ainda não está ativa.
-- LSP depende de um servidor compatível instalado: `typescript-language-server`, `pyright-langserver`, `rust-analyzer` ou `gopls`.
-- O navegador atual inspeciona páginas; automação interativa completa e busca web com fontes ainda não fazem parte deste runtime.
-- Git mutável, execução de plugins, extração de arquivos compactados e adaptadores de CLI ainda não fazem parte do loop.
+- Adaptadores de CLI dependem do respectivo executável já instalado e autenticado no computador.
+- Plugins precisam declarar ferramentas em `dama-plugin.json`, `.dama/plugin.json`, `.codex-plugin/plugin.json` ou no campo `dama.tools` do `package.json`.
+- A Dama pode oferecer a instalação do LSP detectado; Rust e Go ainda dependem dos toolchains `rustup` e `go`.
+- O debugger DAP integrado nesta versão usa `debugpy`; outros adaptadores podem ser fornecidos por plugins.
 - Ainda não há instalador assinado.
 
 Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para as próximas camadas.

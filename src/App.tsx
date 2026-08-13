@@ -88,6 +88,7 @@ const browserSettings: DamaSettings = {
   appearance: { density: "comfortable", motion: true, contextPanel: true, accent: "amber", surface: "warm" },
   damaEngine: { baseModelId: null },
   computerUse: { enabled: false },
+  projectMemory: { enabled: false },
   mcpServers: [],
   plugins: [],
 };
@@ -110,6 +111,24 @@ function hasWorkspaceApi() {
     && typeof window.dama.saveConversation === "function"
     && typeof window.dama.loadConversation === "function"
     && typeof window.dama.deleteConversation === "function");
+}
+
+function isStandaloneResearchRequest(value: string) {
+  const request = value.trim();
+  if (!request || request.length > 1800) return false;
+  const asksForInformation = /^(?:pesquis[ae]|procure|busque|descubra|encontre|compare|explique|me\s+diga|quais?|qual|o\s+que|como|onde|existe|existem|tem\s+algum|h[aá]\s+algum)|\b(?:pesquis[ae]|procure|busque|existe(?:m)?|alternativas?|compara[çc][aã]o|not[ií]cias?|fontes?|documenta[çc][aã]o)\b/i.test(request);
+  const asksToChangeProject = /\b(?:crie|criar|fa[çc]a|construa|implemente|edite|mude|ajuste|corrija|adicione|remova|instale|execute|rode|arquivo|c[oó]digo|componente|fun[çc][aã]o|localhost|preview|deploy|commit|branch)\b/i.test(request);
+  return asksForInformation && !asksToChangeProject;
+}
+
+function isDirectConversationRequest(value: string) {
+  const request = value.trim();
+  if (!request || request.length > 1800 || isStandaloneResearchRequest(request)) return false;
+  const social = /^(?:oi|ol[aá]|opa|e\s+a[ií]|bom\s+dia|boa\s+tarde|boa\s+noite|obrigad[oa]|valeu|beleza|entendi|show|legal|perfeito)\b/i.test(request);
+  const question = /\?$/.test(request) || /^(?:por\s+qu[eê]|porque|ser[aá]\s+que|posso|devo|voc[eê]|o\s+dama|a\s+dama|qual\s+sua|o\s+que\s+voc[eê]\s+acha|(?:tenho\s+)?uma\s+d[uú]vida|queria\s+saber)\b/i.test(request);
+  const projectContext = /\b(?:neste|nesse|nesta|nessa|meu|minha)\s+(?:projeto|site|app|aplicativo|c[oó]digo|arquivo|componente|bot[aã]o|fun[çc][aã]o)|\b(?:arquivo|c[oó]digo|linha|stack\s*trace|erro|bug|workspace|reposit[oó]rio|componente|bot[aã]o|localhost|preview|build|teste\s+falhando)\b/i.test(request);
+  const asksForAction = /\b(?:crie|criar|fa[çc]a|construa|implemente|edite|mude|ajuste|corrija|adicione|remova|instale|execute|rode|abra|analise|revise|teste)\b/i.test(request);
+  return (social || question) && !projectContext && !asksForAction;
 }
 
 function DamaSplash({ ready, onExited }: { ready: boolean; onExited: () => void }) {
@@ -478,7 +497,7 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
         </SettingsGroup>
         <SettingsGroup title="O que fica no computador" description="A opção do instalador não baixa pesos de modelo."><div className="engine-explanation"><span><Cpu size={14} /><div><strong>Local</strong><small>Motor do agente, ferramentas, permissões, contexto do projeto e histórico.</small></div></span><span><Globe2 size={14} /><div><strong>API configurada</strong><small>O modelo que raciocina e gera respostas. Tokens continuam protegidos pelo sistema operacional.</small></div></span></div></SettingsGroup>
       </>}
-      {section === "agent" && <><SettingsGroup title="Comportamento" description="Define como o agente planeja e quando interrompe o trabalho."><Field label="Modo padrão"><select value={draft.agent.defaultMode} onChange={(event) => patch("agent", { ...draft.agent, defaultMode: event.target.value })}><option value="plan">Planejar antes de agir</option><option value="agent">Agente direto</option><option value="ask">Somente responder</option></select></Field><Field label="Política de aprovação"><select value={draft.agent.approvalPolicy} onChange={(event) => patch("agent", { ...draft.agent, approvalPolicy: event.target.value })}><option value="careful">Cautelosa</option><option value="balanced">Equilibrada</option><option value="autonomous">Mais autônoma</option></select></Field><Toggle label="Limitar ciclos do agente" detail="Desligado por padrão: a Dama continua trabalhando até concluir" checked={draft.agent.limitTurns} onChange={(value) => patch("agent", { ...draft.agent, limitTurns: value })} />{draft.agent.limitTurns && <RangeField label="Máximo de ciclos" value={draft.agent.maxTurns} min={4} max={100} step={1} onChange={(value) => patch("agent", { ...draft.agent, maxTurns: value })} />}<Toggle label="Enter envia a mensagem" detail="Use Shift+Enter para criar uma nova linha" checked={draft.agent.sendOnEnter} onChange={(value) => patch("agent", { ...draft.agent, sendOnEnter: value })} /></SettingsGroup><SettingsGroup title="Uso do computador" description="Ferramenta opcional para testar sites e aplicativos na interface real do Windows."><Toggle label="Permitir controle assistido" detail="Mesmo ativada, cada sessão exige autorização. Uma borda laranja fica visível e Esc cancela imediatamente." checked={draft.computerUse.enabled} onChange={(value) => patch("computerUse", { enabled: value })} /><div className="settings-inline-warning"><ShieldCheck size={14} /><span>A Dama lê somente a janela ativa pela Acessibilidade do Windows. Campos de senha não são lidos e a sessão termina junto com a execução.</span></div></SettingsGroup><SettingsGroup title="Instruções pessoais" description="Aplicadas junto às regras de cada projeto."><textarea className="settings-textarea" value={draft.agent.customInstructions} onChange={(event) => patch("agent", { ...draft.agent, customInstructions: event.target.value })} placeholder="Ex.: prefira pnpm, explique decisões de arquitetura…" /></SettingsGroup></>}
+      {section === "agent" && <><SettingsGroup title="Comportamento" description="Define como o agente planeja e quando interrompe o trabalho."><Field label="Modo padrão"><select value={draft.agent.defaultMode} onChange={(event) => patch("agent", { ...draft.agent, defaultMode: event.target.value })}><option value="plan">Planejar antes de agir</option><option value="agent">Agente direto</option><option value="ask">Somente responder</option></select></Field><Field label="Política de aprovação"><select value={draft.agent.approvalPolicy} onChange={(event) => patch("agent", { ...draft.agent, approvalPolicy: event.target.value })}><option value="careful">Cautelosa</option><option value="balanced">Equilibrada</option><option value="autonomous">Mais autônoma</option></select></Field><Toggle label="Limitar ciclos do agente" detail="Desligado por padrão: a Dama continua trabalhando até concluir" checked={draft.agent.limitTurns} onChange={(value) => patch("agent", { ...draft.agent, limitTurns: value })} />{draft.agent.limitTurns && <RangeField label="Máximo de ciclos" value={draft.agent.maxTurns} min={4} max={100} step={1} onChange={(value) => patch("agent", { ...draft.agent, maxTurns: value })} />}<Toggle label="Enter envia a mensagem" detail="Use Shift+Enter para criar uma nova linha" checked={draft.agent.sendOnEnter} onChange={(value) => patch("agent", { ...draft.agent, sendOnEnter: value })} /></SettingsGroup><SettingsGroup title="Memória do projeto" description="Registro opcional e local das decisões importantes de cada workspace."><Toggle label="Atualizar memória automaticamente" detail="Após alterações reais, mantém notes/memoria-do-projeto.md com pedido, resultado e arquivos importantes." checked={draft.projectMemory.enabled} onChange={(value) => patch("projectMemory", { enabled: value })} /></SettingsGroup><SettingsGroup title="Uso do computador" description="Ferramenta opcional para testar sites e aplicativos na interface real do Windows."><Toggle label="Permitir controle assistido" detail="Mesmo ativada, cada sessão exige autorização. Uma borda laranja fica visível e Esc cancela imediatamente." checked={draft.computerUse.enabled} onChange={(value) => patch("computerUse", { enabled: value })} /><div className="settings-inline-warning"><ShieldCheck size={14} /><span>A Dama lê somente a janela ativa pela Acessibilidade do Windows. Campos de senha não são lidos e a sessão termina junto com a execução.</span></div></SettingsGroup><SettingsGroup title="Instruções pessoais" description="Aplicadas junto às regras de cada projeto."><textarea className="settings-textarea" value={draft.agent.customInstructions} onChange={(event) => patch("agent", { ...draft.agent, customInstructions: event.target.value })} placeholder="Ex.: prefira pnpm, explique decisões de arquitetura…" /></SettingsGroup></>}
       {section === "mcp" && <><SettingsGroup title="Servidores MCP" description="Cadastre servidores por comando local ou endpoint HTTP. O agente conecta somente quando você autorizar uma chamada."><div className="integration-form"><input value={mcpDraft.name} onChange={(event) => setMcpDraft({ ...mcpDraft, name: event.target.value })} placeholder="Nome do servidor" /><select value={mcpDraft.transport} onChange={(event) => setMcpDraft({ ...mcpDraft, transport: event.target.value as "stdio" | "http" })}><option value="stdio">Comando local</option><option value="http">HTTP</option></select><input value={mcpDraft.value} onChange={(event) => setMcpDraft({ ...mcpDraft, value: event.target.value })} placeholder={mcpDraft.transport === "stdio" ? "npx -y @servidor/mcp" : "https://mcp.exemplo.com"} /><button className="secondary-button" onClick={addMcp}><Plus size={13} /> Adicionar</button></div>{draft.mcpServers.length ? <div className="integration-list">{draft.mcpServers.map((server) => <div key={server.id}><span className="integration-icon"><Plug size={14} /></span><div><strong>{server.name}</strong><small>{server.transport === "stdio" ? server.command : server.url}</small><em>{server.enabled ? "Ativo · uso sujeito a autorização" : "Desativado"}</em></div><Toggle compact label="" checked={server.enabled} onChange={(enabled) => patch("mcpServers", draft.mcpServers.map((item) => item.id === server.id ? { ...item, enabled } : item))} /><button className="icon-button" onClick={() => patch("mcpServers", draft.mcpServers.filter((item) => item.id !== server.id))}><Trash2 size={13} /></button></div>)}</div> : <SettingsEmpty icon={<Plug size={20} />} text="Nenhum servidor MCP configurado." />}</SettingsGroup></>}
       {section === "plugins" && <SettingsGroup title="Plugins locais" description="Cadastre bundles locais. O runtime de extensões ainda não executa plugins nesta versão."><button className="add-integration" onClick={addPlugin}><Plus size={14} /> Adicionar pasta de plugin</button>{draft.plugins.length ? <div className="integration-list">{draft.plugins.map((plugin) => <div key={plugin.id}><span className="integration-icon"><Puzzle size={14} /></span><div><strong>{plugin.name}</strong><small>{plugin.description || plugin.path}</small><em>{plugin.version} · carregamento ainda não iniciado</em></div><Toggle compact label="" checked={plugin.enabled} onChange={(enabled) => patch("plugins", draft.plugins.map((item) => item.id === plugin.id ? { ...item, enabled } : item))} /><button className="icon-button" onClick={() => patch("plugins", draft.plugins.filter((item) => item.id !== plugin.id))}><Trash2 size={13} /></button></div>)}</div> : <SettingsEmpty icon={<Puzzle size={20} />} text="Nenhum plugin local adicionado." />}</SettingsGroup>}
       {section === "appearance" && <SettingsGroup title="Interface" description="Estas opções são aplicadas ao salvar."><Field label="Idioma da interface"><select value={draft.agent.language} onChange={(event) => patch("agent", { ...draft.agent, language: event.target.value })}><option value="pt-BR">Português (Brasil)</option><option value="en-US">English</option><option value="es-ES">Español</option></select></Field><Field label="Densidade"><select value={draft.appearance.density} onChange={(event) => patch("appearance", { ...draft.appearance, density: event.target.value })}><option value="compact">Compacta</option><option value="comfortable">Confortável</option><option value="spacious">Espaçosa</option></select></Field><Field label="Cor de destaque"><select value={draft.appearance.accent} onChange={(event) => patch("appearance", { ...draft.appearance, accent: event.target.value })}><option value="amber">Âmbar</option><option value="green">Verde</option><option value="blue">Azul</option><option value="violet">Violeta</option><option value="neutral">Neutra</option></select></Field><Field label="Superfície"><select value={draft.appearance.surface} onChange={(event) => patch("appearance", { ...draft.appearance, surface: event.target.value })}><option value="warm">Grafite quente</option><option value="black">Preto profundo</option><option value="slate">Azul ardósia</option></select></Field><Toggle label="Animações da interface" detail="Transições mais suaves entre telas e estados" checked={draft.appearance.motion} onChange={(value) => patch("appearance", { ...draft.appearance, motion: value })} /><Toggle label="Painel de contexto aberto" detail="Mostra atividade e estado do projeto à direita" checked={draft.appearance.contextPanel} onChange={(value) => patch("appearance", { ...draft.appearance, contextPanel: value })} /></SettingsGroup>}
@@ -1176,7 +1195,7 @@ export default function App() {
     }
     try {
       setError(null);
-      if (!project) {
+      if (!project && !isStandaloneResearchRequest(visibleRequest) && !isDirectConversationRequest(visibleRequest)) {
         if (!window.dama) throw new Error("A criação automática de projetos exige o aplicativo desktop.");
         const created = await window.dama.createProjectFromPrompt(request);
         setProject(created);
@@ -1198,7 +1217,7 @@ export default function App() {
         setPhase("executing");
         const result = await window.dama!.executePlan({ prompt: request, plan: nextPlan, modelId: agentModelId, reasoning, runId, conversationId: activeConversationId, history, direct: true, baseChangeSetId });
         setAgentResult(result);
-        setProject(result.project);
+        if (result.project) setProject(result.project);
         setGit(result.git);
         setPhase("done");
         activePlanId.current = null;
@@ -1235,7 +1254,7 @@ export default function App() {
       const result = await window.dama!.executePlan({ prompt: record.prompt, plan: record.plan, modelId: agentModelId, reasoning, runId: record.runId, conversationId: activeConversationId, history: buildAgentHistory(), baseChangeSetId: record.baseChangeSetId || (changeSet?.status === "pending" ? changeSet.id : null) });
       setAgentResult(result);
       setAgentPlans((current) => current.map((item) => item.id === planId ? { ...item, status: "done", result } : item));
-      setProject(result.project);
+      if (result.project) setProject(result.project);
       setGit(result.git);
       setPhase("done");
       finishActivity(activityId, result.changedFiles.length ? `${result.changedFiles.length} arquivo(s) alterado(s)` : "Concluído sem alterações");
@@ -1423,7 +1442,7 @@ export default function App() {
           {view === "editor" && <EditorView file={openFile} line={openFileLine} draft={fileDraft} setDraft={setFileDraft} dirty={isDirty} saving={fileSaving} onSave={saveFile} onOpenProject={openProject} />}
           {view === "notes" && <NotesView project={project} file={openFile?.path.toLowerCase().endsWith(".md") ? openFile : null} draft={fileDraft} setDraft={setFileDraft} dirty={isDirty} saving={fileSaving} onSave={saveFile} onOpenProject={openProject} onOpenNote={selectNote} onCreate={createNote} onImportAsset={importNoteAsset} />}
           {view === "search" && <SearchView project={project} query={searchQuery} setQuery={setSearchQuery} results={searchResults} searching={searching} onSearch={performSearch} onOpen={selectFile} />}
-          {view === "git" && <GitView project={project} git={git} onRefresh={refreshGit} onInit={async () => { if (window.dama) setGit(await window.dama.gitInit()); }} onOpen={selectFile} />}
+          {view === "git" && <GitView project={project} git={git} onRefresh={refreshGit} onInit={async () => { if (window.dama) setGit(await window.dama.gitInit()); }} onOperation={async (input) => { if (!window.dama) throw new Error("Git exige o aplicativo desktop."); const result = await window.dama.gitOperation(input); setGit(await window.dama.gitSummary()); return result; }} onOpen={selectFile} />}
           {view === "terminal" && <TerminalView project={project} input={terminalInput} setInput={setTerminalInput} entries={terminalEntries} onRequest={(command) => { pendingCommandOrigin.current = "terminal"; setPendingCommand(command); }} onStop={(id) => window.dama?.stopCommand(id)} onClear={() => setTerminalEntries([])} />}
           {view === "preview" && <PreviewView project={project} state={preview} url={previewUrlInput} setUrl={setPreviewUrlInput} error={previewError} onStart={startPreview} onStop={stopPreview} onSendToAgent={(references) => { setAgentReferences(references); setView("agent"); }} />}
         </div></ViewBoundary>
@@ -1781,7 +1800,7 @@ function AgentView(props: {
             if (props.prompt.trim()) event.currentTarget.form?.requestSubmit();
           }
         }} />
-        <div className="composer-footer"><ModelControls models={props.models} selectedModelId={props.selectedModelId} onModelChange={props.onModelChange} teamMode={props.teamMode} reasoning={props.reasoning} onReasoningChange={props.onReasoningChange} /><span className="composer-shortcut">{props.project ? props.project.name : "O workspace será criado automaticamente"}</span><span className="composer-mode"><Sparkles size={13} /> {busy ? "Orientar execução" : props.phase === "review" ? "Ajustar plano" : "Chat agente"}</span><button disabled={!props.prompt.trim()}><ArrowUp size={15} /></button></div>
+        <div className="composer-footer"><ModelControls models={props.models} selectedModelId={props.selectedModelId} onModelChange={props.onModelChange} teamMode={props.teamMode} reasoning={props.reasoning} onReasoningChange={props.onReasoningChange} /><span className="composer-shortcut">{props.project ? props.project.name : "Pergunte ou descreva um novo projeto"}</span><span className="composer-mode"><Sparkles size={13} /> {busy ? "Orientar execução" : props.phase === "review" ? "Ajustar plano" : "Chat agente"}</span><button disabled={!props.prompt.trim()}><ArrowUp size={15} /></button></div>
       </form>
     </div>
   );
@@ -1801,7 +1820,7 @@ function ToolApprovalCard({ request, onResolve }: { request: ToolApprovalRequest
     <p><AlertCircle size={13} />{request.risk}</p>
     {pending ? <footer>
       <button className="approval-deny" onClick={() => onResolve("deny")}><X size={13} /> Negar</button>
-      <label><select aria-label="Escopo da autorização" value={scope} onChange={(event) => setScope(event.target.value as ToolApprovalDecision)}><option value="once">Permitir uma vez</option><option value="chat">Permitir sempre neste chat</option><option value="project">Permitir sempre neste projeto</option><option value="global">Sempre permitir este comando</option></select><ChevronDown size={11} /></label>
+      <label><select aria-label="Escopo da autorização" value={scope} onChange={(event) => setScope(event.target.value as ToolApprovalDecision)}><option value="once">Permitir uma vez</option><option value="chat">Permitir sempre neste chat</option>{request.projectPath && <option value="project">Permitir sempre neste projeto</option>}<option value="global">Sempre permitir este comando</option></select><ChevronDown size={11} /></label>
       <button className="approval-allow" onClick={() => onResolve(scope)}><Check size={13} /> Permitir</button>
     </footer> : <footer className="approval-resolved"><span>{request.status === "denied" ? <X size={13} /> : <Check size={13} />}{decisionLabels[request.decision || (request.status === "denied" ? "deny" : "once")]}</span></footer>}
   </section>;
@@ -2048,10 +2067,37 @@ function SearchView({ project, query, setQuery, results, searching, onSearch, on
   return <div className="search-view"><form onSubmit={onSearch}><Search size={17} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar texto no projeto" /><button disabled={query.trim().length < 2 || searching}>{searching ? <LoaderCircle className="spin" size={14} /> : "Buscar"}</button></form><div className="search-results">{results.map((result, index) => <button key={`${result.path}-${result.line}-${index}`} onClick={() => onOpen(result.path, result.line)}><div><strong>{result.path}</strong><span>linha {result.line}</span></div><code>{result.preview}</code></button>)}{query && !searching && !results.length && <p>Nenhuma ocorrência encontrada.</p>}</div></div>;
 }
 
-function GitView({ project, git, onRefresh, onInit, onOpen }: { project: OpenProject | null; git: GitSummary; onRefresh: () => void; onInit: () => void; onOpen: (path: string) => void }) {
+function GitView({ project, git, onRefresh, onInit, onOperation, onOpen }: { project: OpenProject | null; git: GitSummary; onRefresh: () => void; onInit: () => void; onOperation: (input: Record<string, unknown>) => Promise<GitOperationResult>; onOpen: (path: string) => void }) {
+  const [action, setAction] = useState("status");
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [output, setOutput] = useState<string | null>(null);
+  const actions = [
+    ["status", "Atualizar status"], ["branches", "Listar branches"], ["create_branch", "Criar branch"], ["checkout", "Trocar branch"],
+    ["stage", "Adicionar ao stage"], ["unstage", "Remover do stage"], ["commit", "Criar commit"], ["pull", "Pull"], ["push", "Push"],
+    ["stash", "Guardar no stash"], ["stash_list", "Listar stash"], ["stash_pop", "Aplicar stash"], ["merge", "Merge"], ["abort_merge", "Abortar merge"],
+    ["revert", "Reverter commit"], ["restore", "Restaurar arquivo"],
+  ];
+  const needsValue = !["status", "branches", "pull", "push", "stash", "stash_list", "stash_pop", "abort_merge"].includes(action);
+  const placeholder = action === "commit" ? "Mensagem do commit" : action === "create_branch" || action === "checkout" || action === "merge" ? "Nome da branch" : action === "revert" ? "Hash do commit" : "Caminhos separados por vírgula";
+  async function runOperation(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true); setOutput(null);
+    try {
+      const input: Record<string, unknown> = { action };
+      if (["create_branch", "checkout", "merge"].includes(action)) input.name = value.trim();
+      else if (action === "commit") input.message = value.trim();
+      else if (action === "revert") input.ref = value.trim();
+      else if (["stage", "unstage", "restore"].includes(action)) input.paths = value.split(",").map((item) => item.trim()).filter(Boolean);
+      const result = await onOperation(input);
+      setOutput([result.stdout, result.stderr, result.conflicts.length ? `Conflitos:\n${result.conflicts.join("\n")}` : ""].filter(Boolean).join("\n").trim() || "Operação concluída.");
+      if (result.code === 0 && needsValue) setValue("");
+    } catch (cause) { setOutput(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  }
   if (!project) return <CenteredEmpty icon={<GitBranch size={24} />} title="Nenhum repositório aberto" text="Abra um projeto para visualizar o estado do Git." />;
   if (!git.repository) return <CenteredEmpty icon={<GitBranch size={24} />} title="Git ainda não iniciado" text="Você pode iniciar um repositório nesta pasta. Nenhum arquivo será commitado." action="Iniciar Git" onAction={onInit} />;
-  return <div className="git-view"><header><div><span className="eyebrow">Branch atual</span><h2><GitBranch size={18} />{git.branch}</h2></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={13} /> Atualizar</button></header><section><div className="section-heading"><span>Alterações locais</span><small>{git.changes.length}</small></div>{git.changes.length ? git.changes.map((change) => <button className="git-file-row" key={`${change.status}-${change.path}`} onClick={() => onOpen(change.path)}><span className={`git-status status-${change.status[0]}`}>{change.status}</span><span>{change.path}</span><ChevronRight size={13} /></button>) : <div className="clean-state"><CheckCircle2 size={20} /><p>O diretório de trabalho está limpo.</p></div>}</section></div>;
+  return <div className="git-view"><header><div><span className="eyebrow">Branch atual</span><h2><GitBranch size={18} />{git.branch}</h2></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={13} /> Atualizar</button></header><form className="git-operations" onSubmit={runOperation}><select value={action} onChange={(event) => { setAction(event.target.value); setValue(""); setOutput(null); }}>{actions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select>{needsValue && <input value={value} onChange={(event) => setValue(event.target.value)} placeholder={placeholder} />}<button className="primary-button" disabled={busy || needsValue && !value.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Play size={13} />} Executar</button></form>{output && <pre className="git-operation-output">{output}</pre>}<section><div className="section-heading"><span>Alterações locais</span><small>{git.changes.length}</small></div>{git.changes.length ? git.changes.map((change) => <button className="git-file-row" key={`${change.status}-${change.path}`} onClick={() => onOpen(change.path)}><span className={`git-status status-${change.status[0]}`}>{change.status}</span><span>{change.path}</span><ChevronRight size={13} /></button>) : <div className="clean-state"><CheckCircle2 size={20} /><p>O diretório de trabalho está limpo.</p></div>}</section></div>;
 }
 
 function TerminalView({ project, input, setInput, entries, onRequest, onStop, onClear }: { project: OpenProject | null; input: string; setInput: (value: string) => void; entries: TerminalEntry[]; onRequest: (command: string) => void; onStop: (id: string) => void; onClear: () => void }) {
