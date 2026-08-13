@@ -1,7 +1,7 @@
 # Dama
 
 Dama é uma IDE agêntica desktop e independente de modelo. Ela conecta APIs diretas e modelos locais a um workspace que entende projetos, propõe planos, edita arquivos e executa ferramentas com aprovação explícita.
-
+Discord: https://discord.gg/3cV3BwyNAE
 ## Marco atual — 0.8.0
 
 Esta versão já possui uma primeira fatia funcional:
