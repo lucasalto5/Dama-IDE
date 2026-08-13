@@ -4,5 +4,5 @@
 - Notificações do sistema para autorizações e execuções longas concluídas.
 - Interface disponível em português, inglês e espanhol.
 - Nova central de preferências para atualizações e notificações.
-- Código da IDE publicado como open source, com componentes privados separados.
+- Código da IDE publicado para consulta e contribuição sob PolyForm Shield, com componentes privados separados e uso concorrente proibido.
 - Canal de atualização migrado para o repositório oficial Dama-IDE.

@@ -4,7 +4,7 @@ A Dama consulta este canal estável:
 
 `https://github.com/lucasalto5/Dama-IDE/releases/latest/download`
 
-Para que computadores já instalados recebam a atualização, a release e seus artefatos precisam estar públicos. O repositório `Dama-IDE` contém o cliente open source; servidores, pesos, credenciais e o payload privado da Dama AI não fazem parte dele.
+Para que computadores já instalados recebam a atualização, a release e seus artefatos precisam estar públicos. O repositório `Dama-IDE` contém o cliente source available sob PolyForm Shield; servidores, pesos, credenciais e o payload privado da Dama AI não fazem parte dele.
 
 ## Processo
 
