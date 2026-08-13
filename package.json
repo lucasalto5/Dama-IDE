@@ -2,7 +2,7 @@
   "name": "dama-ide",
   "private": true,
   "type": "module",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "author": "Dama",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -75,7 +75,7 @@
       }
     ],
     "releaseInfo": {
-      "releaseName": "Dama 0.10.1",
+      "releaseName": "Dama 0.10.2",
       "releaseNotesFile": "build/release-notes.md"
     },
     "files": [

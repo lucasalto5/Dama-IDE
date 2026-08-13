@@ -4,17 +4,17 @@ A Dama consulta este canal estável:
 
 `https://github.com/lucasalto5/Dama-IDE/releases/latest/download`
 
-Para que computadores já instalados recebam a atualização, a release e seus artefatos precisam estar públicos. O repositório `Dama-IDE` contém o cliente source available sob PolyForm Shield; servidores, pesos, credenciais e o payload privado da Dama AI não fazem parte dele.
+Para que computadores já instalados recebam a atualização, a release e seus artefatos precisam estar públicos. O repositório `Dama-IDE` contém o cliente source available sob PolyForm Perimeter 1.0.1; servidores, pesos, credenciais e o payload privado da Dama AI não fazem parte dele.
 
 ## Processo
 
 1. Atualize a versão em `package.json` e as notas em `build/release-notes.md`.
 2. Execute `npm run package:win`.
 3. Execute `npm run verify:update`.
-4. Crie uma nova GitHub Release com a mesma versão, por exemplo `v0.10.1`.
+4. Crie uma nova GitHub Release com a mesma versão, por exemplo `v0.10.2`.
 5. Anexe, sem renomear:
-   - `release/Dama-Setup-0.10.1.exe`
-   - `release/Dama-Setup-0.10.1.exe.blockmap`
+   - `release/Dama-Setup-0.10.2.exe`
+   - `release/Dama-Setup-0.10.2.exe.blockmap`
    - `release/latest.yml`
 6. Publique a release como `Latest`.
 
