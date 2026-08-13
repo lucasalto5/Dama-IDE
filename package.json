@@ -1,0 +1,110 @@
+{
+  "name": "dama-ide",
+  "private": true,
+  "type": "module",
+  "version": "0.10.1",
+  "author": "Dama",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lucasalto5/Dama-IDE.git"
+  },
+  "homepage": "https://github.com/lucasalto5/Dama-IDE",
+  "bugs": "https://github.com/lucasalto5/Dama-IDE/issues",
+  "description": "Dama — uma IDE agêntica, independente de modelo.",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "dev:web": "vite",
+    "build": "tsc --noEmit && vite build",
+    "benchmark": "node scripts/benchmark.mjs",
+    "test:notes": "node scripts/test-notes.mjs",
+    "test:engine": "node scripts/test-dama-engine.mjs",
+    "test:models": "node scripts/test-model-catalog.mjs",
+    "test:preview": "node scripts/test-preview-inspector.mjs",
+    "test:json": "node scripts/test-model-json.mjs",
+    "test:updates": "node scripts/test-update-manager.mjs",
+    "verify:update": "node scripts/verify-update-release.mjs",
+    "test:syntax": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/dama-engine.cjs && node --check electron/model-catalog.cjs && node --check electron/preview-inspector.cjs && node --check electron/model-json.cjs && node --check electron/update-manager.cjs",
+    "preview": "vite preview",
+    "package:dir": "npm run build && electron-builder --dir --win --x64",
+    "package:win": "npm run test:syntax && npm run build && electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "latest",
+    "@fontsource/instrument-serif": "latest",
+    "@monaco-editor/react": "^4.7.0",
+    "@vitejs/plugin-react": "latest",
+    "electron-updater": "^6.8.9",
+    "lucide-react": "latest",
+    "marked": "^14.0.0",
+    "monaco-editor": "^0.56.0",
+    "node-pty": "^1.1.0",
+    "react": "latest",
+    "react-dom": "latest",
+    "typescript": "^5.9.3",
+    "typescript-language-server": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "concurrently": "latest",
+    "electron": "latest",
+    "electron-builder": "^26.15.3",
+    "vite": "latest",
+    "wait-on": "latest"
+  },
+  "build": {
+    "appId": "dev.dama.ide",
+    "productName": "Dama",
+    "asar": true,
+    "asarUnpack": [
+      "electron/computer-helper.ps1"
+    ],
+    "npmRebuild": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/lucasalto5/Dama-IDE/releases/latest/download",
+        "channel": "latest"
+      }
+    ],
+    "releaseInfo": {
+      "releaseName": "Dama 0.10.1",
+      "releaseNotesFile": "build/release-notes.md"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "build/app-icon.png",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/app-icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Dama",
+      "artifactName": "Dama-Setup-${version}.${ext}",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

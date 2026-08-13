@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:syntax
+      - run: npm run test:notes
+      - run: npm run test:engine
+      - run: npm run test:models
+      - run: npm run test:preview
+      - run: npm run test:json
+      - run: npm run test:updates
+      - run: npm run build

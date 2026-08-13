@@ -1,0 +1,35 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:syntax
+      - run: npm run test:engine
+      - run: npm run test:models
+      - run: npm run test:updates
+      - run: npm run package:win
+      - run: npm run verify:update
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Dama ${{ github.ref_name }}
+          body_path: build/release-notes.md
+          make_latest: true
+          files: |
+            release/Dama-Setup-*.exe
+            release/Dama-Setup-*.exe.blockmap
+            release/latest.yml
