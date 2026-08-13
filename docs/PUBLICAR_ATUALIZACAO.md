@@ -11,10 +11,10 @@ Para que computadores já instalados recebam a atualização, a release e seus a
 1. Atualize a versão em `package.json` e as notas em `build/release-notes.md`.
 2. Execute `npm run package:win`.
 3. Execute `npm run verify:update`.
-4. Crie uma nova GitHub Release com a mesma versão, por exemplo `v0.10.2`.
+4. Crie uma nova GitHub Release com a mesma versão, por exemplo `v0.10.3`.
 5. Anexe, sem renomear:
-   - `release/Dama-Setup-0.10.2.exe`
-   - `release/Dama-Setup-0.10.2.exe.blockmap`
+   - `release/Dama-Setup-0.10.3.exe`
+   - `release/Dama-Setup-0.10.3.exe.blockmap`
    - `release/latest.yml`
 6. Publique a release como `Latest`.
 
