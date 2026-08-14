@@ -1,5 +1,9 @@
-# Dama 0.10.3 — teste do atualizador
+# Dama 0.11.0 — ferramentas profissionais
 
-- Atualização publicada exclusivamente para validar o fluxo automático da Dama.
-- Se esta nota apareceu dentro do aplicativo, a consulta ao GitHub funcionou corretamente.
-- Nenhuma funcionalidade da IDE foi alterada nesta versão.
+- Perguntas gerais respondem diretamente, e pesquisas informativas usam fontes sem criar projeto, ler workspace ou mostrar plano.
+- Navegação e leitura no navegador isolado não interrompem mais o trabalho com autorização por site.
+- Git completo com branches, stage, commit, pull, push, stash, merge, conflitos, revert e restore.
+- Execução estruturada de Jest, Vitest, Pytest, Mocha, Cargo e Go, com falhas clicáveis.
+- Instalação assistida de LSP, debugger DAP para Python e automação do navegador isolado.
+- Runtime de plugins, conectores Codex/Claude/Gemini/OpenCode e criação ou extração segura de arquivos compactados.
+- Memória automática opcional em `notes/memoria-do-projeto.md`.

@@ -391,6 +391,9 @@ button:disabled { cursor: default; opacity: .45; }
 .git-view { max-width: 730px; margin: 0 auto; padding: 48px 30px; height: 100%; overflow-y: auto; }
 .git-view > header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 32px; }
 .git-view h2 { font-family: "Instrument Serif", Georgia, serif; font-weight: 400; font-size: 30px; margin: 7px 0 0; display: flex; align-items: center; gap: 8px; }
+.git-operations { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(180px, 1.3fr) auto; gap: 8px; padding: 10px; margin: -14px 0 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.git-operations select, .git-operations input { min-width: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); padding: 7px 9px; outline: 0; font-size: 10px; }
+.git-operation-output { max-height: 180px; overflow: auto; margin: -12px 0 22px; padding: 10px; border-left: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 4%, transparent); color: var(--muted); font: 9px/1.55 Consolas, monospace; white-space: pre-wrap; }
 .section-heading { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 9px; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .git-file-row { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; display: flex; gap: 8px; align-items: center; text-align: left; padding: 10px 4px; color: var(--muted); font-size: 9px; cursor: pointer; }
 .git-file-row:hover { color: var(--text); }

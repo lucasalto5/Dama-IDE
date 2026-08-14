@@ -5,6 +5,7 @@ type OpenProject = { name: string; path: string; files: ProjectNode[]; packageIn
 type OpenFile = { path: string; content: string; modifiedAt: number };
 type SearchResult = { path: string; line: number; preview: string };
 type GitSummary = { repository: boolean; branch: string | null; changes: Array<{ status: string; path: string }> };
+type GitOperationResult = { code: number; stdout: string; stderr: string; action: string; status: string; conflicts: string[] };
 type CommandResult = { code: number; stdout: string; stderr: string; command: string };
 type PreviewState = { running: boolean; url: string | null; logs: string[]; command: string | null };
 type PreviewElementReference = {
@@ -41,6 +42,7 @@ type DamaSettings = {
   appearance: { density: string; motion: boolean; contextPanel: boolean; accent: string; surface: string };
   damaEngine: { baseModelId: string | null };
   computerUse: { enabled: boolean };
+  projectMemory: { enabled: boolean };
   mcpServers: Array<{ id: string; name: string; transport: "stdio" | "http"; command?: string; args?: string; url?: string; enabled: boolean }>;
   plugins: Array<{ id: string; name: string; version: string; description?: string; path: string; enabled: boolean }>;
 };
@@ -76,11 +78,11 @@ type Plan = {
   commands?: Array<{ command: string; reason: string }>;
   risks?: string[];
 };
-type AgentPreparation = { mode: "direct" | "plan"; intro: string; plan: Plan };
+type AgentPreparation = { mode: "direct" | "plan"; intro: string; plan: Plan; standalone?: boolean; conversation?: boolean };
 type ChangeSetSummary = { id: string; status: "pending" | "accepted" | "rejected"; createdAt: string; projectPath: string; added: number; removed: number; files: Array<{ path: string; added: number; removed: number; created: boolean }> };
 type ChangeDiff = { path: string; added: number; removed: number; lines: Array<{ kind: "same" | "added" | "removed" | "skip"; oldLine: number | null; newLine: number | null; content: string }> };
 type ChangeSetResolution = { changeSet: ChangeSetSummary; project: OpenProject; git: GitSummary };
-type AgentResult = { summary: string; changedFiles: string[]; reviewRounds?: number; changeSet?: ChangeSetSummary | null; project: OpenProject; git: GitSummary };
+type AgentResult = { summary: string; changedFiles: string[]; reviewRounds?: number; changeSet?: ChangeSetSummary | null; project: OpenProject | null; git: GitSummary };
 type AgentProgressEvent = {
   id: string;
   runId: string;
@@ -96,7 +98,7 @@ type ToolApprovalRequest = {
   id: string;
   runId: string;
   chatId: string | null;
-  projectPath: string;
+  projectPath: string | null;
   tool: string;
   title: string;
   detail: string;
@@ -128,6 +130,7 @@ interface Window {
     gitSummary: () => Promise<GitSummary>;
     gitDiff: (relativePath?: string) => Promise<string>;
     gitInit: () => Promise<GitSummary>;
+    gitOperation: (input: Record<string, unknown>) => Promise<GitOperationResult>;
     runCommand: (command: string) => Promise<CommandResult>;
     startCommand: (command: string, id: string) => Promise<{ id: string; command: string }>;
     stopCommand: (id: string) => Promise<boolean>;

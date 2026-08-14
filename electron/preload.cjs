@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("dama", {
   gitSummary: () => ipcRenderer.invoke("git:summary"),
   gitDiff: (relativePath) => ipcRenderer.invoke("git:diff", relativePath),
   gitInit: () => ipcRenderer.invoke("git:init"),
+  gitOperation: (input) => ipcRenderer.invoke("git:operation", input),
   runCommand: (command) => ipcRenderer.invoke("terminal:run", command),
   startCommand: (command, id) => ipcRenderer.invoke("terminal:start", command, id),
   stopCommand: (id) => ipcRenderer.invoke("terminal:stop", id),
