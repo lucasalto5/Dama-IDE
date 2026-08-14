@@ -39,7 +39,8 @@ type DamaSettings = {
   privacy: { telemetry: boolean; diagnostics: boolean; localHistory: boolean };
   notifications: { enabled: boolean; approvals: boolean; completion: boolean; onlyWhenUnfocused: boolean; longRunSeconds: number };
   updates: { automatic: boolean; checkOnStartup: boolean; channel: "stable" | "beta" };
-  appearance: { density: string; motion: boolean; contextPanel: boolean; accent: string; surface: string };
+  appearance: { density: string; motion: boolean; contextPanel: boolean; accent: string; surface: string; scale: number };
+  remote: { appUrl: string };
   damaEngine: { baseModelId: string | null };
   computerUse: { enabled: boolean };
   projectMemory: { enabled: boolean };
@@ -70,6 +71,19 @@ type DamaEngineStatus = {
   features: string[];
   location: string | null;
   message: string;
+};
+type RemoteState = {
+  enabled: boolean;
+  status: "off" | "starting" | "downloading" | "ready" | "error";
+  endpoint: string | null;
+  localPort: number | null;
+  connected: boolean;
+  lastSeenAt: string | null;
+  pairingUrl: string | null;
+  qrDataUrl: string | null;
+  error: string | null;
+  mode: "internet" | "local";
+  detail?: string | null;
 };
 type Plan = {
   title: string;
@@ -162,6 +176,10 @@ interface Window {
     installUpdate: () => Promise<boolean>;
     onUpdateState: (callback: (state: UpdateState) => void) => () => void;
     onNotificationOpen: (callback: (state: { target: "agent" }) => void) => () => void;
+    getRemoteState: () => Promise<RemoteState>;
+    startRemote: () => Promise<RemoteState>;
+    stopRemote: () => Promise<RemoteState>;
+    onRemoteState: (callback: (state: RemoteState) => void) => () => void;
     damaEngineStatus: (verify?: boolean) => Promise<DamaEngineStatus>;
     installDamaEngine: () => Promise<DamaEngineStatus>;
     removeDamaEngine: () => Promise<DamaEngineStatus>;

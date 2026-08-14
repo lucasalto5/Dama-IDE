@@ -1,9 +1,7 @@
-# Dama 0.11.0 — ferramentas profissionais
+# Dama 0.12.0 — Dama Remote e leitura melhor
 
-- Perguntas gerais respondem diretamente, e pesquisas informativas usam fontes sem criar projeto, ler workspace ou mostrar plano.
-- Navegação e leitura no navegador isolado não interrompem mais o trabalho com autorização por site.
-- Git completo com branches, stage, commit, pull, push, stash, merge, conflitos, revert e restore.
-- Execução estruturada de Jest, Vitest, Pytest, Mocha, Cargo e Go, com falhas clicáveis.
-- Instalação assistida de LSP, debugger DAP para Python e automação do navegador isolado.
-- Runtime de plugins, conectores Codex/Claude/Gemini/OpenCode e criação ou extração segura de arquivos compactados.
-- Memória automática opcional em `notes/memoria-do-projeto.md`.
+- Novo Dama Remote para acompanhar projetos, conversar, orientar execuções e aprovar ferramentas pelo celular.
+- Pareamento por QR Code com chave temporária; o site não armazena modelos, arquivos, conversas ou credenciais.
+- A conexão remota pode ser desligada a qualquer momento nas configurações.
+- Interface 12% maior por padrão, com opções de 100%, 112%, 125% e 140%.
+- Melhorias de legibilidade preservando as proporções e o visual original da Dama.

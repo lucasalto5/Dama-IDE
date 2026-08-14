@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("dama", {
-  apiVersion: 8,
+  apiVersion: 9,
   openProject: () => ipcRenderer.invoke("project:open"),
   selectProject: (projectPath) => ipcRenderer.invoke("workspace:selectProject", projectPath),
   createProjectFromPrompt: (prompt) => ipcRenderer.invoke("project:createFromPrompt", prompt),
@@ -68,6 +68,14 @@ contextBridge.exposeInMainWorld("dama", {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("notification:open", listener);
     return () => ipcRenderer.removeListener("notification:open", listener);
+  },
+  getRemoteState: () => ipcRenderer.invoke("remote:state"),
+  startRemote: () => ipcRenderer.invoke("remote:start"),
+  stopRemote: () => ipcRenderer.invoke("remote:stop"),
+  onRemoteState: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("remote:state", listener);
+    return () => ipcRenderer.removeListener("remote:state", listener);
   },
   damaEngineStatus: (verify = false) => ipcRenderer.invoke("damaEngine:status", verify),
   installDamaEngine: () => ipcRenderer.invoke("damaEngine:install"),
