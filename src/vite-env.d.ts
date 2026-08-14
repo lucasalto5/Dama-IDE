@@ -67,6 +67,7 @@ type UpdateState = {
   rollbackError: string | null;
 };
 type DamaQuota = { limit: number; used: number; remaining: number; percentage: number; exhausted: boolean; cycleStartedAt: string; renewsAt: string; updatedAt: string; unit: "tokens"; enforcement: "local" };
+type DamaEngineInstallProgress = { status: "idle" | "checking" | "downloading" | "verifying" | "installing" | "done" | "error"; percent: number; detail: string; error: string | null };
 type DamaEngineStatus = {
   id: string;
   installed: boolean;
@@ -193,6 +194,7 @@ interface Window {
     damaEngineStatus: (verify?: boolean) => Promise<DamaEngineStatus>;
     damaQuotaStatus: () => Promise<DamaQuota>;
     onDamaQuota: (callback: (state: DamaQuota) => void) => () => void;
+    onDamaEngineInstallProgress: (callback: (state: DamaEngineInstallProgress) => void) => () => void;
     installDamaEngine: () => Promise<DamaEngineStatus>;
     removeDamaEngine: () => Promise<DamaEngineStatus>;
     setDamaEngineBaseModel: (id: string | null) => Promise<ModelsState>;

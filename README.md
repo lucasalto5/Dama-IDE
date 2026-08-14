@@ -8,6 +8,8 @@ Dama é uma IDE agêntica desktop e independente de modelo. Ela conecta APIs dir
 
 Este repositório contém a IDE desktop, interface, runtime agêntico, ferramentas locais, instalador, testes e atualizador. Servidores hospedados, credenciais, pesos de modelos e o payload proprietário opcional da Dama AI são distribuídos separadamente e não fazem parte do código público. A IDE continua funcional com APIs compatíveis, NVIDIA NIM, Ollama e LM Studio sem esse componente.
 
+O Dama AI pode ser escolhido no instalador ou adicionado mais tarde em **Configurações → Dama AI**. Nesse segundo fluxo, a IDE baixa o pacote publicado separadamente na release oficial e confere origem, tamanho, SHA-256 e integridade dos arquivos antes de ativá-lo.
+
 O código é **source available**, não open source segundo a definição da OSI. A licença PolyForm Perimeter 1.0.1 permite estudar, modificar e contribuir, mas proíbe oferecer a terceiros um produto que concorra com a Dama, inclusive gratuito. O nome e a identidade visual da Dama também continuam protegidos pelo projeto.
 
 Imagens 
@@ -17,7 +19,7 @@ Imagens
 <a href="https://ibb.co/dwkZ9yJj"><img src="https://i.ibb.co/ycg2TJBd/Captura-de-tela-2026-08-12-161524.png" alt="Captura-de-tela-2026-08-12-161524" border="0" /></a>
 
 
-## Marco atual — 0.10.3
+## Marco atual — 0.12.3
 
 Esta versão já possui uma primeira fatia funcional:
 

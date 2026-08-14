@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("dama", {
-  apiVersion: 11,
+  apiVersion: 12,
   openProject: () => ipcRenderer.invoke("project:open"),
   selectProject: (projectPath) => ipcRenderer.invoke("workspace:selectProject", projectPath),
   createProjectFromPrompt: (prompt) => ipcRenderer.invoke("project:createFromPrompt", prompt),
@@ -95,6 +95,11 @@ contextBridge.exposeInMainWorld("dama", {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("damaEngine:quota", listener);
     return () => ipcRenderer.removeListener("damaEngine:quota", listener);
+  },
+  onDamaEngineInstallProgress: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("damaEngine:installProgress", listener);
+    return () => ipcRenderer.removeListener("damaEngine:installProgress", listener);
   },
   installDamaEngine: () => ipcRenderer.invoke("damaEngine:install"),
   removeDamaEngine: () => ipcRenderer.invoke("damaEngine:remove"),

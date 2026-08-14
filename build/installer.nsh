@@ -31,7 +31,7 @@ Function DamaAiPageCreate
 
   ${NSD_CreateLabel} 0 4u 100% 24u "A Dama funciona com as suas APIs mesmo sem este componente."
   Pop $0
-  ${NSD_CreateCheckbox} 0 39u 100% 16u "Baixar e instalar Dama AI"
+  ${NSD_CreateCheckbox} 0 39u 100% 16u "Instalar Dama AI"
   Pop $DamaAiCheckbox
   ${NSD_Check} $DamaAiCheckbox
   ${NSD_CreateLabel} 18u 60u 92% 36u "Instala localmente o motor Carnaval/Dama e suas ferramentas. Os modelos e tokens continuam sendo os provedores configurados por você."
