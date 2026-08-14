@@ -2,7 +2,7 @@
   "name": "dama-ide",
   "private": true,
   "type": "module",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "author": "Dama",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -79,7 +79,7 @@
       }
     ],
     "releaseInfo": {
-      "releaseName": "Dama 0.12.0 — Dama Remote",
+      "releaseName": "Dama 0.12.1 — chats sincronizados",
       "releaseNotesFile": "build/release-notes.md"
     },
     "files": [

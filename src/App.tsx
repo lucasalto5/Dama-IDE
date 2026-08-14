@@ -484,7 +484,7 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
   }
 
   return <div className="settings-backdrop"><section className="settings-center">
-    <aside><div className="settings-brand"><DinoLogo /><strong>Configurações</strong></div><nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon size={14} />{item.label}</button>; })}</nav><div className="settings-version">Dama 0.12.0 · preview</div></aside>
+    <aside><div className="settings-brand"><DinoLogo /><strong>Configurações</strong></div><nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon size={14} />{item.label}</button>; })}</nav><div className="settings-version">Dama 0.12.1 · preview</div></aside>
     <main><header><div><span className="eyebrow">Preferências</span><h2>{sections.find((item) => item.id === section)?.label}</h2></div><button className="icon-button" onClick={onClose}><X size={17} /></button></header><div className="settings-scroll" key={section}>
       {section === "remote" && <RemoteSettings state={remoteState} busy={remoteBusy} appUrl={draft.remote.appUrl} onAppUrlChange={(appUrl) => patch("remote", { appUrl })} onAction={runRemoteAction} />}
       {section === "appearance" && <SettingsGroup title="Leitura" description="Aumenta toda a interface mantendo as proporções do aplicativo."><Field label="Tamanho da interface"><select value={draft.appearance.scale || 1.12} onChange={(event) => patch("appearance", { ...draft.appearance, scale: Number(event.target.value) })}><option value={1}>100% · compacto</option><option value={1.12}>112% · recomendado</option><option value={1.25}>125% · grande</option><option value={1.4}>140% · muito grande</option></select></Field></SettingsGroup>}
@@ -739,10 +739,10 @@ export default function App() {
             if (recentConversation) await restoreConversation(recentConversation.id, false);
             else startNewConversation("agent");
           }
-        } else if (window.dama.apiVersion !== 9) {
+        } else if (window.dama.apiVersion !== 10) {
           setError("A interface foi atualizada, mas o processo desktop ainda é da versão anterior. Feche a Dama completamente e abra novamente para ativar projetos e conversas.");
         }
-        if (window.dama.apiVersion !== 9) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para carregar notificações, idiomas e atualizações automáticas.");
+        if (window.dama.apiVersion !== 10) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para carregar notificações, idiomas e atualizações automáticas.");
       }
     })().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => {
       window.clearTimeout(splashTimer);
@@ -856,6 +856,19 @@ export default function App() {
     setPhase(latestPlan?.status === "review" || latestPlan?.status === "editing" ? "review" : latestPlan?.status === "executing" ? "error" : latestPlan?.status === "done" ? "done" : "idle");
     setWorkspaceManagerOpen(false);
   }
+
+  useEffect(() => {
+    if (!window.dama?.onConversationChanged) return;
+    const disposeConversation = window.dama.onConversationChanged(({ id }) => {
+      void refreshWorkspaceIndex();
+      if (id === activeConversationId) void restoreConversation(id, false);
+    });
+    const disposeAgentMessage = window.dama.onRemoteAgentMessage(({ conversationId, message }) => {
+      if (conversationKind !== "agent" || conversationId !== activeConversationId) return;
+      setAgentMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
+    });
+    return () => { disposeConversation(); disposeAgentMessage(); };
+  }, [activeConversationId, conversationKind]);
 
   async function openChangeDiff(relativePath: string) {
     if (!window.dama || !changeSet) return;

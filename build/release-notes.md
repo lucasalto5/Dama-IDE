@@ -1,7 +1,8 @@
-# Dama 0.12.0 — Dama Remote e leitura melhor
+# Dama 0.12.1 — chats sincronizados
 
-- Novo Dama Remote para acompanhar projetos, conversar, orientar execuções e aprovar ferramentas pelo celular.
-- Pareamento por QR Code com chave temporária; o site não armazena modelos, arquivos, conversas ou credenciais.
-- A conexão remota pode ser desligada a qualquer momento nas configurações.
-- Interface 12% maior por padrão, com opções de 100%, 112%, 125% e 140%.
-- Melhorias de legibilidade preservando as proporções e o visual original da Dama.
+- O Dama Remote agora lista todo o histórico de chats e conversas de agente salvo no computador.
+- Conversas podem ser abertas no celular com as mensagens reais, projeto e tipo corretos.
+- Novos chats criados no celular aparecem imediatamente na IDE.
+- Mensagens enviadas pelo celular são salvas na mesma conversa e aparecem no computador.
+- Alterações feitas no computador são atualizadas automaticamente no celular.
+- Nova aba Chats no Remote, com histórico, projeto, horário e criação de conversa.

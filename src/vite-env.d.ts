@@ -180,6 +180,8 @@ interface Window {
     startRemote: () => Promise<RemoteState>;
     stopRemote: () => Promise<RemoteState>;
     onRemoteState: (callback: (state: RemoteState) => void) => () => void;
+    onConversationChanged: (callback: (payload: { id: string; source: "remote" }) => void) => () => void;
+    onRemoteAgentMessage: (callback: (payload: { conversationId: string; message: AgentThreadMessage }) => void) => () => void;
     damaEngineStatus: (verify?: boolean) => Promise<DamaEngineStatus>;
     installDamaEngine: () => Promise<DamaEngineStatus>;
     removeDamaEngine: () => Promise<DamaEngineStatus>;

@@ -2263,7 +2263,7 @@ ipcMain.handle("workspace:list", async () => {
   };
 });
 ipcMain.handle("workspace:selectProject", (_event, projectPath) => openProjectAt(projectPath));
-ipcMain.handle("workspace:saveConversation", async (_event, payload) => {
+async function saveConversationRecord(payload) {
   const serialized = JSON.stringify(payload?.data || {});
   if (serialized.length > 5 * 1024 * 1024) throw new Error("Esta conversa ficou grande demais para o histórico local.");
   const store = await readWorkspaceStore();
@@ -2285,7 +2285,9 @@ ipcMain.handle("workspace:saveConversation", async (_event, payload) => {
   await writeWorkspaceStore(store);
   const { data: _data, ...metadata } = conversation;
   return metadata;
-});
+}
+
+ipcMain.handle("workspace:saveConversation", (_event, payload) => saveConversationRecord(payload));
 ipcMain.handle("workspace:loadConversation", async (_event, id) => {
   const store = await readWorkspaceStore();
   return store.conversations.find((item) => item.id === id) || null;
@@ -3024,6 +3026,98 @@ async function runChatRequest(payload) {
 
 ipcMain.handle("agent:chat", (_event, payload) => runChatRequest(payload));
 
+function publicConversation(conversation) {
+  if (!conversation) return null;
+  const data = conversation.data || {};
+  const messages = conversation.kind === "chat"
+    ? (Array.isArray(data.chatMessages) ? data.chatMessages : []).map((message, index) => ({
+        id: `${conversation.id}-chat-${index}`,
+        role: message.role === "assistant" ? "assistant" : "user",
+        content: String(message.content || ""),
+        model: message.model || null,
+        at: conversation.updatedAt,
+      }))
+    : (Array.isArray(data.agentMessages) ? data.agentMessages : []).map((message, index) => ({
+        id: message.id || `${conversation.id}-agent-${index}`,
+        role: message.role === "assistant" ? "assistant" : "user",
+        content: String(message.content || ""),
+        model: null,
+        at: message.at || conversation.updatedAt,
+      }));
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    kind: conversation.kind,
+    projectName: conversation.projectName,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    messages,
+    events: (Array.isArray(data.agentEvents) ? data.agentEvents : []).slice(-120),
+  };
+}
+
+async function remoteGetConversation(id) {
+  const store = await readWorkspaceStore();
+  const conversation = store.conversations.find((item) => item.id === String(id || ""));
+  if (!conversation) throw Object.assign(new Error("Conversa não encontrada."), { statusCode: 404 });
+  return publicConversation(conversation);
+}
+
+async function remoteCreateConversation(payload = {}) {
+  const store = await readWorkspaceStore();
+  const project = store.projects.find((item) => item.id === String(payload.projectId || ""));
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  await saveConversationRecord({
+    id,
+    projectPath: project?.path || "__projectless__",
+    projectName: project?.name || "Sem projeto",
+    title: String(payload.title || "Nova conversa").slice(0, 64),
+    kind: "chat",
+    createdAt: now,
+    updatedAt: now,
+    data: { agentMessages: [], agentEvents: [], agentPlans: [], toolApprovals: [], agentResult: null, chatMessages: [] },
+  });
+  mainWindow?.webContents.send("workspace:conversationChanged", { id, source: "remote" });
+  return remoteGetConversation(id);
+}
+
+async function remoteSendConversationMessage(id, payload = {}) {
+  const content = String(payload.message || "").trim().slice(0, 24000);
+  if (!content) throw Object.assign(new Error("A mensagem está vazia."), { statusCode: 400 });
+  const store = await readWorkspaceStore();
+  const conversation = store.conversations.find((item) => item.id === String(id || ""));
+  if (!conversation) throw Object.assign(new Error("Conversa não encontrada."), { statusCode: 404 });
+  const data = structuredClone(conversation.data || {});
+  const now = new Date().toISOString();
+  if (conversation.kind === "agent") {
+    const agentMessages = Array.isArray(data.agentMessages) ? data.agentMessages : [];
+    const runId = [...agentMessages].reverse().find((message) => message.runId)?.runId
+      || [...(Array.isArray(data.agentPlans) ? data.agentPlans : [])].reverse().find((plan) => plan.runId)?.runId
+      || `remote-${randomUUID()}`;
+    const userMessage = { id: randomUUID(), runId, role: "user", content, at: now };
+    const activeRun = activeAgentRuns.get(runId);
+    if (activeRun) {
+      activeRun.queue.push(content);
+      mainWindow?.webContents.send("remote:agentMessage", { conversationId: conversation.id, message: userMessage });
+      emitAgentEvent(runId, activeRun.stage, "status", "Nova orientação recebida pelo celular", content, "done");
+      return { ...(publicConversation(conversation)), messages: [...publicConversation(conversation).messages, { id: userMessage.id, role: "user", content, model: null, at: now }], queued: true };
+    }
+    const history = [...agentMessages, userMessage].slice(-40).map((message) => ({ role: message.role, content: message.content }));
+    const response = await runChatRequest({ messages: history, reasoning: payload.reasoning || "medium", modelId: payload.modelId || null });
+    data.agentMessages = [...agentMessages, userMessage, { id: randomUUID(), runId, role: "assistant", content: response.content, at: new Date().toISOString() }];
+  } else {
+    const chatMessages = Array.isArray(data.chatMessages) ? data.chatMessages : [];
+    const nextMessages = [...chatMessages, { role: "user", content }];
+    const response = await runChatRequest({ messages: nextMessages.map(({ role, content: text }) => ({ role, content: text })), reasoning: payload.reasoning || "medium", modelId: payload.modelId || null });
+    data.chatMessages = [...nextMessages, { role: "assistant", content: response.content, model: response.model }];
+  }
+  const title = conversation.title === "Nova conversa" ? content.slice(0, 64) : conversation.title;
+  await saveConversationRecord({ ...conversation, title, updatedAt: now, data });
+  mainWindow?.webContents.send("workspace:conversationChanged", { id: conversation.id, source: "remote" });
+  return remoteGetConversation(conversation.id);
+}
+
 async function remoteSnapshot() {
   const store = await readWorkspaceStore();
   const activeKey = projectRoot ? normalizedProjectKey(projectRoot) : null;
@@ -3097,6 +3191,9 @@ app.whenReady().then(() => {
     app,
     getSnapshot: remoteSnapshot,
     onChat: runChatRequest,
+    onGetConversation: remoteGetConversation,
+    onCreateConversation: remoteCreateConversation,
+    onSendConversationMessage: remoteSendConversationMessage,
     onResolveApproval: resolvePendingToolApproval,
     onSelectProject: remoteOpenProject,
     onSteer: remoteSteer,

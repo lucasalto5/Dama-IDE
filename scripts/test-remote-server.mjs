@@ -17,6 +17,9 @@ const manager = createRemoteManager({
   app: { getPath: () => os.tmpdir() },
   getSnapshot: async () => ({ protocol: 1, projects: [{ id: "project-1", name: "Dama" }] }),
   onChat: async (body) => ({ content: `Resposta: ${body.messages?.at(-1)?.content}` }),
+  onGetConversation: async (id) => ({ id, title: "Conversa real", messages: [] }),
+  onCreateConversation: async () => ({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", title: "Nova conversa", messages: [] }),
+  onSendConversationMessage: async (id, body) => ({ id, title: "Conversa real", messages: [{ role: "user", content: body.message }] }),
   onResolveApproval: async (_id, decision) => decision === "once",
   onSelectProject: async (id) => ({ opened: id === "project-1" }),
   onSteer: async (_id, message) => ({ accepted: message === "continue" }),
@@ -35,6 +38,12 @@ const chatResponse = await fetch(`${ready.endpoint}/api/chat`, { method: "POST",
 assert.equal((await chatResponse.json()).content, "Resposta: Oi");
 const approvalResponse = await fetch(`${ready.endpoint}/api/approvals/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`, { method: "POST", headers, body: JSON.stringify({ decision: "once" }) });
 assert.equal((await approvalResponse.json()).accepted, true);
+const conversationResponse = await fetch(`${ready.endpoint}/api/conversations/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`, { headers });
+assert.equal((await conversationResponse.json()).title, "Conversa real");
+const createdResponse = await fetch(`${ready.endpoint}/api/conversations`, { method: "POST", headers, body: JSON.stringify({}) });
+assert.equal(createdResponse.status, 201);
+const messageResponse = await fetch(`${ready.endpoint}/api/conversations/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/messages`, { method: "POST", headers, body: JSON.stringify({ message: "Sincronizar" }) });
+assert.equal((await messageResponse.json()).messages[0].content, "Sincronizar");
 await manager.stop();
 
 console.log("Remote server: autenticação, CORS e rotas reais passaram.");
