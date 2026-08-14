@@ -104,7 +104,7 @@ async function downloadCloudflared(app, onProgress) {
   return target;
 }
 
-function createRemoteManager({ app, getSnapshot, onChat, onResolveApproval, onSelectProject, onSteer, onStatus }) {
+function createRemoteManager({ app, getSnapshot, onChat, onGetConversation, onCreateConversation, onSendConversationMessage, onResolveApproval, onSelectProject, onSteer, onStatus }) {
   let server = null;
   let tunnel = null;
   let tunnelOutput = "";
@@ -166,6 +166,19 @@ function createRemoteManager({ app, getSnapshot, onChat, onResolveApproval, onSe
       if (request.method === "POST" && url.pathname === "/api/chat") {
         const body = await readJsonBody(request);
         return safeJson(response, 200, await onChat(body), origin, allowedOrigin);
+      }
+      if (request.method === "POST" && url.pathname === "/api/conversations") {
+        const body = await readJsonBody(request);
+        return safeJson(response, 201, await onCreateConversation(body), origin, allowedOrigin);
+      }
+      const conversationMessages = url.pathname.match(/^\/api\/conversations\/([a-f0-9-]+)\/messages$/i);
+      if (request.method === "POST" && conversationMessages) {
+        const body = await readJsonBody(request);
+        return safeJson(response, 200, await onSendConversationMessage(conversationMessages[1], body), origin, allowedOrigin);
+      }
+      const conversation = url.pathname.match(/^\/api\/conversations\/([a-f0-9-]+)$/i);
+      if (request.method === "GET" && conversation) {
+        return safeJson(response, 200, await onGetConversation(conversation[1]), origin, allowedOrigin);
       }
       const approval = url.pathname.match(/^\/api\/approvals\/([a-f0-9-]+)$/i);
       if (request.method === "POST" && approval) {
