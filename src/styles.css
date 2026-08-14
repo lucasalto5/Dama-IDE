@@ -739,6 +739,11 @@ button:disabled { cursor: default; opacity: .45; }
 .dama-engine-features span { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 8px; }
 .dama-engine-features svg { color: var(--accent); }
 .dama-engine-actions { padding-top: 10px; display: flex; justify-content: flex-end; border: 0 !important; background: transparent !important; }
+.dama-engine-download { margin-top: 10px; padding: 11px 12px; display: flex; flex-direction: column; gap: 7px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb,var(--accent) 2%,transparent); }
+.dama-engine-download > div:first-child { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 9px; }
+.dama-engine-download > div:first-child small { color: var(--accent-2); }
+.dama-engine-download .update-progress { width: 100%; margin: 0; }
+.dama-engine-download > small { color: var(--faint); font-size: 7px; }
 .dama-quota-card { margin-top: 10px; padding: 13px 14px; display: grid; grid-template-columns: 76px minmax(0,1fr); align-items: center; gap: 14px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb,var(--accent) 2%,transparent); }
 .dama-quota-ring { --quota: 100; position: relative; width: 72px; height: 72px; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(var(--accent-2) calc(var(--quota) * 1%),var(--line-strong) 0); transition: background .35s ease; }
 .dama-quota-ring::before { content: ""; position: absolute; inset: 5px; border-radius: inherit; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line); }

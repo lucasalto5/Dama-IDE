@@ -1,8 +1,7 @@
-# Dama 0.12.2 — Dama AI preservada
+# Dama 0.12.3 — instalação posterior do Dama AI
 
-- O componente local do Dama AI agora fica fora da pasta substituída pelo atualizador.
-- Instalações antigas são migradas automaticamente sem exigir o instalador completo novamente.
-- O uso gratuito agora tem cota real, persistente e renovada a cada 30 dias.
-- Um indicador circular mostra tokens disponíveis, consumidos e data da próxima renovação.
-- Depois de atualizar, a Dama apresenta as notas da nova versão.
-- É possível restaurar a versão estável anterior pela própria tela de atualização ou pelas configurações.
+- Quem não instalou o Dama AI durante a instalação inicial agora pode adicioná-lo em Configurações.
+- O componente é baixado separadamente sem exigir a reinstalação da IDE.
+- O download mostra progresso e valida tamanho, origem, SHA-256 e a integridade de cada arquivo.
+- A ativação é atômica: uma falha não remove uma instalação anterior funcional.
+- O instalador completo continua oferecendo o Dama AI como componente opcional.

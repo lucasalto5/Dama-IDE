@@ -86,7 +86,11 @@ const defaultSettings = {
 };
 
 const isDev = !app.isPackaged;
-const damaEngine = createDamaEngineManager(app, path.resolve(__dirname, ".."));
+const damaEngine = createDamaEngineManager(app, path.resolve(__dirname, ".."), {
+  onProgress: (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("damaEngine:installProgress", progress);
+  },
+});
 const damaQuota = createDamaQuotaManager(app, (quota) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("damaEngine:quota", quota);
 });
@@ -1059,7 +1063,7 @@ async function modelCandidates(role = "primary", explicitId = null) {
     if (id === DAMA_AI_MODEL_ID) {
       const status = await damaEngine.status();
       if (!status.installed) {
-        if (id === firstId) throw new Error("O motor Dama AI não está instalado neste computador. Execute o instalador e marque o componente Dama AI.");
+        if (id === firstId) throw new Error("O motor Dama AI não está instalado neste computador. Adicione-o em Configurações > Dama AI.");
         continue;
       }
       const baseProfile = resolveDamaBaseProfile(settings);
@@ -2514,7 +2518,11 @@ ipcMain.handle("updates:acknowledge", () => updateManager?.acknowledgePostUpdate
 ipcMain.handle("updates:rollback", () => updateManager?.rollback());
 ipcMain.handle("damaEngine:status", (_event, verify = false) => publicDamaEngineStatus(verify));
 ipcMain.handle("damaEngine:quota", () => damaQuota.status());
-ipcMain.handle("damaEngine:install", async () => { await damaEngine.installDevelopmentPayload(); return publicDamaEngineStatus(true); });
+ipcMain.handle("damaEngine:install", async () => {
+  if (app.isPackaged) await damaEngine.installRemoteComponent();
+  else await damaEngine.installDevelopmentPayload();
+  return publicDamaEngineStatus(true);
+});
 ipcMain.handle("damaEngine:remove", async () => { await damaEngine.removeUserComponent(); return publicDamaEngineStatus(); });
 ipcMain.handle("damaEngine:setBaseModel", async (_event, id) => {
   const settings = await readSettings();
