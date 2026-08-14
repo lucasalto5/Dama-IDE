@@ -11,6 +11,7 @@ const { runLsp } = require("./lsp-client.cjs");
 const { runMcp } = require("./mcp-client.cjs");
 const { detectNoteAsset, slugifyNoteName, uniqueProjectFile } = require("./note-utils.cjs");
 const { createDamaEngineManager } = require("./dama-engine.cjs");
+const { createDamaQuotaManager, DamaQuotaError } = require("./dama-quota.cjs");
 const { DAMA_AI_MODEL_ID, buildPublicModelsState, resolveDamaBaseProfile } = require("./model-catalog.cjs");
 const { resolveElementReferences, executeInspectorAction } = require("./preview-inspector.cjs");
 const { parseModelJsonWithRepair } = require("./model-json.cjs");
@@ -86,6 +87,9 @@ const defaultSettings = {
 
 const isDev = !app.isPackaged;
 const damaEngine = createDamaEngineManager(app, path.resolve(__dirname, ".."));
+const damaQuota = createDamaQuotaManager(app, (quota) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("damaEngine:quota", quota);
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -1038,6 +1042,7 @@ async function requestCompletion(config, messages, options = {}) {
   const message = data.choices?.[0]?.message;
   if (!message) throw new Error("A resposta do modelo não contém uma mensagem compatível.");
   Object.defineProperty(message, "_damaModel", { value: config.displayModel || data.model || config.model, enumerable: false });
+  Object.defineProperty(message, "_damaUsage", { value: data.usage || null, enumerable: false });
   return message;
 }
 
@@ -1091,16 +1096,18 @@ async function chatCompletion(messages, options = {}) {
   for (let round = 0; round < rounds; round += 1) {
     for (const config of candidates) {
       const label = config.name || config.model;
-      const candidateKey = config.id || `${config.url}|${config.model}`;
+      const candidateKey = config.virtualProfileId || config.id || `${config.url}|${config.model}`;
       if (disabled.has(candidateKey)) continue;
       try {
+        if (config.virtualProfileId === DAMA_AI_MODEL_ID) await damaQuota.assertAvailable();
         const response = await requestCompletion(config, messages, options);
+        if (config.virtualProfileId === DAMA_AI_MODEL_ID) await damaQuota.consume({ usage: response._damaUsage, messages, responseText: response.content });
         if (retried && options.runId) emitAgentEvent(options.runId, options.stage || "execution", "status", "Reconectando aos modelos", `${config.name || config.model} respondeu após a reconexão.`, "done");
         return response;
       }
       catch (error) {
         failures.set(candidateKey, { label, error });
-        if (!(error instanceof ModelApiError) || !error.retryable) disabled.add(candidateKey);
+        if (error instanceof DamaQuotaError || !(error instanceof ModelApiError) || !error.retryable) disabled.add(candidateKey);
       }
     }
     if (disabled.size >= candidates.length || (!unlimited && round + 1 >= rounds)) break;
@@ -1111,7 +1118,7 @@ async function chatCompletion(messages, options = {}) {
     await new Promise((resolve) => setTimeout(resolve, delay));
   }
   const entries = [...failures.values()];
-  const quotaEntries = entries.filter(({ error }) => error instanceof ModelApiError && error.kind === "quota");
+  const quotaEntries = entries.filter(({ error }) => error instanceof DamaQuotaError || (error instanceof ModelApiError && error.kind === "quota"));
   const details = entries.map(({ label, error }) => `${label}: ${friendlyFailureMessage(error)}`).join("\n");
   const finalMessage = quotaEntries.length
     ? `O limite de uso da IA acabou para ${quotaEntries.map(({ label }) => label).join(", ")}.\nA Dama tentou os modelos de fallback disponíveis, mas não conseguiu concluir.\n${details}`
@@ -2406,6 +2413,11 @@ async function publicModelsState(settings) {
   return buildPublicModelsState(resolvedSettings, engineStatus);
 }
 
+async function publicDamaEngineStatus(verify = false) {
+  const [engine, quota] = await Promise.all([damaEngine.status({ verify: Boolean(verify) }), damaQuota.status()]);
+  return { ...engine, quota };
+}
+
 ipcMain.handle("models:list", async () => {
   return publicModelsState();
 });
@@ -2498,9 +2510,12 @@ ipcMain.handle("updates:state", () => updateManager?.getState() || { supported: 
 ipcMain.handle("updates:check", () => updateManager?.check());
 ipcMain.handle("updates:download", () => updateManager?.download());
 ipcMain.handle("updates:install", () => updateManager?.install() || false);
-ipcMain.handle("damaEngine:status", (_event, verify = false) => damaEngine.status({ verify: Boolean(verify) }));
-ipcMain.handle("damaEngine:install", () => damaEngine.installDevelopmentPayload());
-ipcMain.handle("damaEngine:remove", () => damaEngine.removeUserComponent());
+ipcMain.handle("updates:acknowledge", () => updateManager?.acknowledgePostUpdate());
+ipcMain.handle("updates:rollback", () => updateManager?.rollback());
+ipcMain.handle("damaEngine:status", (_event, verify = false) => publicDamaEngineStatus(verify));
+ipcMain.handle("damaEngine:quota", () => damaQuota.status());
+ipcMain.handle("damaEngine:install", async () => { await damaEngine.installDevelopmentPayload(); return publicDamaEngineStatus(true); });
+ipcMain.handle("damaEngine:remove", async () => { await damaEngine.removeUserComponent(); return publicDamaEngineStatus(); });
 ipcMain.handle("damaEngine:setBaseModel", async (_event, id) => {
   const settings = await readSettings();
   const baseModelId = id || null;
@@ -3183,9 +3198,28 @@ ipcMain.handle("system:copyText", (_event, value) => {
 });
 ipcMain.handle("system:benchmark", () => runSystemBenchmark());
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   app.setAppUserModelId("dev.dama.ide");
-  updateManager = createUpdateManager({ app, getWindow: () => mainWindow, readSettings, isDev });
+  updateManager = createUpdateManager({
+    app,
+    getWindow: () => mainWindow,
+    readSettings,
+    isDev,
+    confirmRollback: async (release) => {
+      const answer = await dialog.showMessageBox({ type: "warning", title: "Restaurar versão anterior", message: `Restaurar a Dama ${release.version}?`, detail: "O instalador oficial da versão anterior será baixado. Projetos, conversas, configurações e o Dama AI permanecem no computador. As atualizações automáticas ficarão pausadas para evitar que a versão nova seja reinstalada imediatamente.", buttons: ["Cancelar", "Baixar e restaurar"], defaultId: 0, cancelId: 0 });
+      return answer.response === 1;
+    },
+    prepareRollback: async () => {
+      const settings = await readSettings();
+      await updateSettings({ updates: { ...settings.updates, automatic: false, checkOnStartup: false } });
+    },
+    launchInstaller: async (installer) => {
+      const child = spawn(installer, [], { detached: true, stdio: "ignore", windowsHide: false });
+      child.unref();
+      setTimeout(() => app.quit(), 700);
+    },
+  });
+  await updateManager.initialize();
   professionalRuntime = createProfessionalRuntime({ BrowserWindow, getProjectRoot: () => projectRoot, getSettings: readSettings });
   remoteManager = createRemoteManager({
     app,
