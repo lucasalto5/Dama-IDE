@@ -3,6 +3,20 @@
 !include "MUI2.nsh"
 
 !ifndef BUILD_UNINSTALLER
+!macro customInit
+  ; Versões antigas guardavam o motor dentro da pasta do aplicativo. Antes que
+  ; o atualizador substitua essa pasta, movemos o componente para userData,
+  ; que é preservado entre versões e também é lido pelo runtime da Dama.
+  IfFileExists "$INSTDIR\resources\dama-engine\manifest.json" 0 dama_ai_migration_done
+  CreateDirectory "$APPDATA\Dama\components"
+  RMDir /r "$APPDATA\Dama\components\dama-ai.migrating"
+  Rename "$INSTDIR\resources\dama-engine" "$APPDATA\Dama\components\dama-ai.migrating"
+  IfErrors dama_ai_migration_done
+  RMDir /r "$APPDATA\Dama\components\dama-ai"
+  Rename "$APPDATA\Dama\components\dama-ai.migrating" "$APPDATA\Dama\components\dama-ai"
+dama_ai_migration_done:
+!macroend
+
 !if /FileExists "${PROJECT_DIR}\dama-engine-payload\manifest.json"
 Var DamaAiCheckbox
 Var DamaAiRequested
@@ -36,9 +50,9 @@ FunctionEnd
 !macroend
 
 !macro customInstall
-  RMDir /r "$INSTDIR\resources\dama-engine"
   ${If} $DamaAiRequested == ${BST_CHECKED}
-    SetOutPath "$INSTDIR\resources\dama-engine"
+    RMDir /r "$APPDATA\Dama\components\dama-ai"
+    SetOutPath "$APPDATA\Dama\components\dama-ai"
     File /r "${PROJECT_DIR}\dama-engine-payload\*.*"
   ${EndIf}
 !macroend

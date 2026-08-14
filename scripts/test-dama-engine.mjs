@@ -40,6 +40,23 @@ try {
   assert.match(await manager.promptAddon(), /Carnaval IA/i);
   const removed = await manager.removeUserComponent();
   assert.equal(removed.installed, false);
+
+  const packagedResources = path.join(temporaryDirectory, "packaged-resources");
+  await fs.mkdir(packagedResources, { recursive: true });
+  await fs.cp(payloadDirectory, path.join(packagedResources, "dama-engine"), { recursive: true });
+  const originalResourcesPath = process.resourcesPath;
+  process.resourcesPath = packagedResources;
+  try {
+    const packagedManager = createDamaEngineManager({ ...fakeApp, isPackaged: true }, projectDirectory);
+    const migrated = await packagedManager.status({ verify: true });
+    assert.equal(migrated.installed, true);
+    assert.equal(migrated.verified, true);
+    assert.match(migrated.location, /components[\\/]dama-ai$/);
+    assert.equal(await fs.readFile(path.join(migrated.location, "Dama.ps1"), "utf8"), payload);
+  } finally {
+    if (originalResourcesPath === undefined) delete process.resourcesPath;
+    else process.resourcesPath = originalResourcesPath;
+  }
   console.log("Dama AI: instalação, integridade e remoção local confirmadas.");
 } finally {
   await fs.rm(temporaryDirectory, { recursive: true, force: true });

@@ -1,8 +1,8 @@
-# Dama 0.12.1 — chats sincronizados
+# Dama 0.12.2 — Dama AI preservada
 
-- O Dama Remote agora lista todo o histórico de chats e conversas de agente salvo no computador.
-- Conversas podem ser abertas no celular com as mensagens reais, projeto e tipo corretos.
-- Novos chats criados no celular aparecem imediatamente na IDE.
-- Mensagens enviadas pelo celular são salvas na mesma conversa e aparecem no computador.
-- Alterações feitas no computador são atualizadas automaticamente no celular.
-- Nova aba Chats no Remote, com histórico, projeto, horário e criação de conversa.
+- O componente local do Dama AI agora fica fora da pasta substituída pelo atualizador.
+- Instalações antigas são migradas automaticamente sem exigir o instalador completo novamente.
+- O uso gratuito agora tem cota real, persistente e renovada a cada 30 dias.
+- Um indicador circular mostra tokens disponíveis, consumidos e data da próxima renovação.
+- Depois de atualizar, a Dama apresenta as notas da nova versão.
+- É possível restaurar a versão estável anterior pela própria tela de atualização ou pelas configurações.

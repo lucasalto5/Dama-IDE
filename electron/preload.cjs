@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("dama", {
-  apiVersion: 10,
+  apiVersion: 11,
   openProject: () => ipcRenderer.invoke("project:open"),
   selectProject: (projectPath) => ipcRenderer.invoke("workspace:selectProject", projectPath),
   createProjectFromPrompt: (prompt) => ipcRenderer.invoke("project:createFromPrompt", prompt),
@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld("dama", {
   checkForUpdates: () => ipcRenderer.invoke("updates:check"),
   downloadUpdate: () => ipcRenderer.invoke("updates:download"),
   installUpdate: () => ipcRenderer.invoke("updates:install"),
+  acknowledgeUpdate: () => ipcRenderer.invoke("updates:acknowledge"),
+  rollbackUpdate: () => ipcRenderer.invoke("updates:rollback"),
   onUpdateState: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on("updates:state", listener);
@@ -88,6 +90,12 @@ contextBridge.exposeInMainWorld("dama", {
     return () => ipcRenderer.removeListener("remote:agentMessage", listener);
   },
   damaEngineStatus: (verify = false) => ipcRenderer.invoke("damaEngine:status", verify),
+  damaQuotaStatus: () => ipcRenderer.invoke("damaEngine:quota"),
+  onDamaQuota: (callback) => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on("damaEngine:quota", listener);
+    return () => ipcRenderer.removeListener("damaEngine:quota", listener);
+  },
   installDamaEngine: () => ipcRenderer.invoke("damaEngine:install"),
   removeDamaEngine: () => ipcRenderer.invoke("damaEngine:remove"),
   setDamaEngineBaseModel: (id) => ipcRenderer.invoke("damaEngine:setBaseModel", id),

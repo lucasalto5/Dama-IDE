@@ -61,7 +61,12 @@ type UpdateState = {
   bytesPerSecond: number;
   automatic: boolean;
   error: string | null;
+  postUpdate: { version: string; previousVersion: string | null; releaseName: string; releaseNotes: string; releaseDate: string | null } | null;
+  rollbackStatus: "idle" | "checking" | "downloading" | "ready" | "error";
+  rollbackPercent: number;
+  rollbackError: string | null;
 };
+type DamaQuota = { limit: number; used: number; remaining: number; percentage: number; exhausted: boolean; cycleStartedAt: string; renewsAt: string; updatedAt: string; unit: "tokens"; enforcement: "local" };
 type DamaEngineStatus = {
   id: string;
   installed: boolean;
@@ -71,6 +76,7 @@ type DamaEngineStatus = {
   features: string[];
   location: string | null;
   message: string;
+  quota: DamaQuota;
 };
 type RemoteState = {
   enabled: boolean;
@@ -174,6 +180,8 @@ interface Window {
     checkForUpdates: () => Promise<UpdateState>;
     downloadUpdate: () => Promise<UpdateState>;
     installUpdate: () => Promise<boolean>;
+    acknowledgeUpdate: () => Promise<UpdateState>;
+    rollbackUpdate: () => Promise<UpdateState>;
     onUpdateState: (callback: (state: UpdateState) => void) => () => void;
     onNotificationOpen: (callback: (state: { target: "agent" }) => void) => () => void;
     getRemoteState: () => Promise<RemoteState>;
@@ -183,6 +191,8 @@ interface Window {
     onConversationChanged: (callback: (payload: { id: string; source: "remote" }) => void) => () => void;
     onRemoteAgentMessage: (callback: (payload: { conversationId: string; message: AgentThreadMessage }) => void) => () => void;
     damaEngineStatus: (verify?: boolean) => Promise<DamaEngineStatus>;
+    damaQuotaStatus: () => Promise<DamaQuota>;
+    onDamaQuota: (callback: (state: DamaQuota) => void) => () => void;
     installDamaEngine: () => Promise<DamaEngineStatus>;
     removeDamaEngine: () => Promise<DamaEngineStatus>;
     setDamaEngineBaseModel: (id: string | null) => Promise<ModelsState>;

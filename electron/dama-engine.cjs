@@ -28,7 +28,7 @@ function createDamaEngineManager(app, projectDirectory) {
 
   async function findInstalledRoot() {
     const candidates = app.isPackaged
-      ? [packagedComponentRoot(), userComponentRoot()]
+      ? [userComponentRoot(), packagedComponentRoot()]
       : [userComponentRoot()];
     for (const candidate of candidates) {
       try {
@@ -37,6 +37,21 @@ function createDamaEngineManager(app, projectDirectory) {
       } catch {}
     }
     return null;
+  }
+
+  async function persistPackagedComponent(installed) {
+    if (!app.isPackaged) return installed;
+    if (!installed || path.resolve(installed.root) !== path.resolve(packagedComponentRoot())) return installed;
+    const problems = await verifyRoot(installed.root, installed.manifest);
+    if (problems.length) return installed;
+    const target = userComponentRoot();
+    const staging = `${target}.migrating`;
+    await fs.rm(staging, { recursive: true, force: true });
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.cp(installed.root, staging, { recursive: true, errorOnExist: false, force: true });
+    await fs.rm(target, { recursive: true, force: true });
+    await fs.rename(staging, target);
+    return { root: target, manifest: installed.manifest };
   }
 
   async function verifyRoot(root, manifest) {
@@ -63,7 +78,7 @@ function createDamaEngineManager(app, projectDirectory) {
   }
 
   async function status({ verify = false } = {}) {
-    const installed = await findInstalledRoot();
+    const installed = await persistPackagedComponent(await findInstalledRoot());
     if (!installed) {
       return {
         id: COMPONENT_ID,
@@ -110,10 +125,6 @@ function createDamaEngineManager(app, projectDirectory) {
   async function removeUserComponent() {
     const target = userComponentRoot();
     await fs.rm(target, { recursive: true, force: true });
-    const packaged = await findInstalledRoot();
-    if (packaged && path.resolve(packaged.root) === path.resolve(packagedComponentRoot())) {
-      throw new Error("Este componente foi instalado junto com a Dama. Execute o instalador novamente e desmarque Dama AI para removê-lo.");
-    }
     return status();
   }
 
