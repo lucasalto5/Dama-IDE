@@ -1,6 +1,7 @@
 const { app, BrowserWindow, clipboard, dialog, ipcMain, shell, safeStorage, screen, globalShortcut, Notification } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const fsNative = require("node:fs");
 const { spawn, execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { createHash, randomUUID } = require("node:crypto");
@@ -19,6 +20,7 @@ const { createUpdateManager } = require("./update-manager.cjs");
 const { createProfessionalRuntime } = require("./professional-tools.cjs");
 const { isStandaloneResearchRequest, isDirectConversationRequest } = require("./request-routing.cjs");
 const { createRemoteManager } = require("./remote-server.cjs");
+const { validateStructuredFile, normalizedToolFileContent } = require("./file-content.cjs");
 const nodePty = require("node-pty");
 
 const execFileAsync = promisify(execFile);
@@ -37,6 +39,9 @@ const textExtensions = new Set([
 
 let mainWindow;
 let projectRoot = null;
+let projectWatcher = null;
+let projectWatchTimer = null;
+let projectWatchGeneration = 0;
 let previewProcess = null;
 let previewServer = null;
 let previewState = { running: false, url: null, logs: [], command: null };
@@ -51,9 +56,10 @@ let updateManager = null;
 let professionalRuntime = null;
 let remoteManager = null;
 const recentAgentEvents = [];
+const agentCheckpointTimers = new Map();
 
 const defaultSettings = {
-  schemaVersion: 6,
+  schemaVersion: 7,
   onboardingCompleted: false,
   profile: { name: "", useCase: "personal", experience: "intermediate" },
   agent: {
@@ -76,6 +82,7 @@ const defaultSettings = {
   remote: { appUrl: "https://dama-remote.vercel.app" },
   damaEngine: { baseModelId: null },
   computerUse: { enabled: false },
+  permissions: { fullAccess: false },
   projectMemory: { enabled: false },
   mcpServers: [],
   plugins: [],
@@ -176,6 +183,77 @@ async function notifyLongRunCompletion(startedAt, detail) {
   return showDamaNotification("completion", detail);
 }
 
+function agentCheckpointsDirectory() {
+  return path.join(app.getPath("userData"), "dama-agent-checkpoints");
+}
+
+function agentCheckpointFilePath(runId) {
+  if (!/^[a-f0-9-]{20,}$/i.test(String(runId || ""))) throw new Error("Identificador de recuperação inválido.");
+  return path.join(agentCheckpointsDirectory(), `${runId}.json`);
+}
+
+function publicAgentCheckpoint(record) {
+  return {
+    id: record.id,
+    status: "interrupted",
+    projectPath: record.projectPath,
+    conversationId: record.conversationId || null,
+    startedAt: record.startedAt,
+    updatedAt: record.updatedAt,
+    payload: record.payload,
+    events: (record.events || []).slice(-160),
+    changedFiles: record.changedFiles || [],
+  };
+}
+
+async function persistAgentCheckpoint(runId, runState) {
+  if (!runState?.checkpoint) return;
+  const record = {
+    ...runState.checkpoint,
+    id: runId,
+    changedFiles: [...(runState.changedFiles || [])],
+    snapshots: [...(runState.snapshots || new Map())],
+  };
+  const directory = agentCheckpointsDirectory();
+  const target = agentCheckpointFilePath(runId);
+  const temporary = `${target}.${process.pid}.tmp`;
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(temporary, JSON.stringify(record), "utf8");
+  await fs.rename(temporary, target);
+}
+
+function scheduleAgentCheckpoint(runId, runState) {
+  if (agentCheckpointTimers.has(runId)) clearTimeout(agentCheckpointTimers.get(runId));
+  agentCheckpointTimers.set(runId, setTimeout(() => {
+    agentCheckpointTimers.delete(runId);
+    void persistAgentCheckpoint(runId, runState);
+  }, 120));
+}
+
+async function clearAgentCheckpoint(runId) {
+  if (!runId) return;
+  if (agentCheckpointTimers.has(runId)) clearTimeout(agentCheckpointTimers.get(runId));
+  agentCheckpointTimers.delete(runId);
+  try { await fs.unlink(agentCheckpointFilePath(runId)); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+}
+
+async function readAgentCheckpoint(runId) {
+  try { return JSON.parse(await fs.readFile(agentCheckpointFilePath(runId), "utf8")); } catch { return null; }
+}
+
+async function listAgentCheckpoints() {
+  let entries = [];
+  try { entries = await fs.readdir(agentCheckpointsDirectory()); } catch { return []; }
+  const records = [];
+  for (const entry of entries.filter((name) => /^[a-f0-9-]{20,}\.json$/i.test(name))) {
+    try {
+      const record = JSON.parse(await fs.readFile(path.join(agentCheckpointsDirectory(), entry), "utf8"));
+      if (record?.projectPath && record?.payload) records.push(publicAgentCheckpoint(record));
+    } catch {}
+  }
+  return records.sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt))).slice(0, 8);
+}
+
 function emitAgentEvent(runId, stage, type, title, detail = "", state = "done") {
   if (!runId) return;
   const event = {
@@ -190,6 +268,12 @@ function emitAgentEvent(runId, stage, type, title, detail = "", state = "done") 
   };
   recentAgentEvents.push(event);
   if (recentAgentEvents.length > 240) recentAgentEvents.splice(0, recentAgentEvents.length - 240);
+  const runState = activeAgentRuns.get(runId);
+  if (runState?.checkpoint) {
+    runState.checkpoint.updatedAt = event.at;
+    runState.checkpoint.events = [...(runState.checkpoint.events || []), event].slice(-160);
+    scheduleAgentCheckpoint(runId, runState);
+  }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("agent:event", event);
 }
 
@@ -206,6 +290,7 @@ async function requestToolApproval({ runId, chatId, tool, title, detail, subject
   const fingerprint = approvalFingerprint(tool, subject);
   const projectKey = projectRoot ? normalizedProjectKey(projectRoot) : null;
   const settings = await readSettings();
+  if (settings.permissions?.fullAccess === true) return { approved: true, automatic: true, fullAccess: true };
   const rules = Array.isArray(settings.toolApprovals) ? settings.toolApprovals : [];
   const allowed = rules.some((rule) => rule.tool === tool
     && (rule.fingerprint === "*" || rule.fingerprint === fingerprint)
@@ -226,7 +311,8 @@ async function requestToolApproval({ runId, chatId, tool, title, detail, subject
 async function requireToolApproval(context, request) {
   const result = await requestToolApproval({ runId: context.runId, chatId: context.chatId || null, ...request });
   if (!result.approved) throw new Error("A execução foi negada pela pessoa.");
-  if (result.automatic) emitAgentEvent(context.runId, "execution", "status", "Permissão reutilizada", `${request.title} já estava autorizado pelo escopo salvo.`, "done");
+  if (result.fullAccess) emitAgentEvent(context.runId, "execution", "status", "Acesso total ativo", `${request.title} foi permitido pela configuração de acesso total.`, "done");
+  else if (result.automatic) emitAgentEvent(context.runId, "execution", "status", "Permissão reutilizada", `${request.title} já estava autorizado pelo escopo salvo.`, "done");
   return result;
 }
 
@@ -299,14 +385,86 @@ async function rememberProject(directory) {
   return project;
 }
 
+function stopProjectWatcher() {
+  projectWatchGeneration += 1;
+  if (projectWatchTimer) clearTimeout(projectWatchTimer);
+  projectWatchTimer = null;
+  if (projectWatcher) {
+    try { projectWatcher.close(); } catch {}
+  }
+  projectWatcher = null;
+}
+
+function ignoredWatchPath(fileName) {
+  const parts = String(fileName || "").replaceAll("\\", "/").split("/").filter(Boolean);
+  return parts.some((part) => ignoredDirectories.has(part))
+    || parts.some((part) => sensitiveFileNames.has(part.toLowerCase()));
+}
+
+function startProjectWatcher(directory) {
+  stopProjectWatcher();
+  const watchedRoot = path.resolve(directory);
+  const generation = projectWatchGeneration;
+  const changed = (_eventType, fileName) => {
+    if (ignoredWatchPath(fileName)) return;
+    if (projectWatchTimer) clearTimeout(projectWatchTimer);
+    projectWatchTimer = setTimeout(async () => {
+      projectWatchTimer = null;
+      if (generation !== projectWatchGeneration || projectRoot !== watchedRoot) return;
+      try {
+        const rootStat = await fs.stat(watchedRoot);
+        if (!rootStat.isDirectory()) throw Object.assign(new Error("A pasta do projeto não existe mais."), { code: "ENOENT" });
+        const snapshot = await projectSnapshot();
+        if (generation === projectWatchGeneration && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:changed", snapshot);
+      } catch (error) {
+        if (error?.code !== "ENOENT") return;
+        stopProjectWatcher();
+        if (projectRoot === watchedRoot) projectRoot = null;
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:changed", null);
+      }
+    }, 180);
+  };
+  try {
+    projectWatcher = fsNative.watch(watchedRoot, { recursive: process.platform === "win32" || process.platform === "darwin" }, changed);
+    projectWatcher.on("error", () => {
+      if (generation === projectWatchGeneration) stopProjectWatcher();
+    });
+  } catch {
+    projectWatcher = null;
+  }
+}
+
+function slugFromProjectName(value) {
+  const words = String(value || "novo-projeto").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) || ["novo", "projeto"];
+  return words.slice(0, 6).join("-").slice(0, 56) || "novo-projeto";
+}
+
+async function createProjectInDocuments(name) {
+  const title = String(name || "Novo projeto").trim().slice(0, 80) || "Novo projeto";
+  const slug = slugFromProjectName(title);
+  const base = path.join(app.getPath("documents"), "Dama Projects");
+  let target = path.join(base, slug);
+  let suffix = 2;
+  while (true) {
+    try { await fs.access(target); target = path.join(base, `${slug}-${suffix++}`); }
+    catch { break; }
+  }
+  await fs.mkdir(target, { recursive: true });
+  await fs.writeFile(path.join(target, "README.md"), `# ${title}\n\nProjeto criado pela Dama.\n`, "utf8");
+  return openProjectAt(target);
+}
+
 async function openProjectAt(directory) {
   const resolved = path.resolve(String(directory || ""));
   const stat = await fs.stat(resolved);
   if (!stat.isDirectory()) throw new Error("O projeto salvo não aponta mais para uma pasta válida.");
   stopPreview();
+  stopProjectWatcher();
   projectRoot = resolved;
   await rememberProject(resolved);
-  return projectSnapshot();
+  const snapshot = await projectSnapshot();
+  startProjectWatcher(resolved);
+  return snapshot;
 }
 
 function normalizeModelRouting(input, profiles = [], activeModelId = null) {
@@ -342,6 +500,7 @@ function mergeSettings(current, patch) {
     remote: { ...defaultSettings.remote, ...current?.remote, ...patch?.remote },
     damaEngine: { ...defaultSettings.damaEngine, ...current?.damaEngine, ...patch?.damaEngine },
     computerUse: { ...defaultSettings.computerUse, ...current?.computerUse, ...patch?.computerUse },
+    permissions: { ...defaultSettings.permissions, ...current?.permissions, ...patch?.permissions },
     projectMemory: { ...defaultSettings.projectMemory, ...current?.projectMemory, ...patch?.projectMemory },
     mcpServers: patch?.mcpServers ?? current?.mcpServers ?? [],
     plugins: patch?.plugins ?? current?.plugins ?? [],
@@ -392,6 +551,10 @@ async function readSettings() {
       saved.schemaVersion = 6;
       saved.appearance = { ...saved.appearance, scale: 1.12 };
     }
+    if (Number(saved.schemaVersion) < 7) {
+      saved.schemaVersion = 7;
+      saved.permissions = { ...saved.permissions, fullAccess: false };
+    }
     return mergeSettings(saved, {});
   } catch {
     return structuredClone(defaultSettings);
@@ -407,7 +570,12 @@ async function updateSettings(patch) {
 
 async function listDirectory(directory, depth = 0, budget = { count: 0 }) {
   if (depth > 5 || budget.count > 1200) return [];
-  const entries = await fs.readdir(directory, { withFileTypes: true });
+  let entries;
+  try { entries = await fs.readdir(directory, { withFileTypes: true }); }
+  catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
   const visible = entries
     .filter((entry) => !ignoredDirectories.has(entry.name))
     .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
@@ -1251,13 +1419,13 @@ const agentTools = [
   { type: "function", function: { name: "inspect_webpage", description: "Abre uma URL HTTP/HTTPS em navegador isolado e retorna título, texto, links e controles visíveis. Leitura isolada não exige autorização.", parameters: { type: "object", properties: { url: { type: "string" }, wait_ms: { type: "integer", minimum: 0, maximum: 15000 } }, required: ["url"] } } },
   { type: "function", function: { name: "computer_use", description: "Quando a pessoa ativou esta opção, inicia uma sessão visível para inspecionar a janela real do Windows e, após autorização, abrir uma URL, clicar ou digitar para testar uma interface. Use coordenadas somente da inspeção mais recente. A pessoa pode cancelar com Esc.", parameters: { type: "object", properties: { action: { type: "string", enum: ["inspect", "open_url", "click", "type", "key", "wait", "stop"] }, url: { type: "string" }, x: { type: "integer" }, y: { type: "integer" }, text: { type: "string", maxLength: 8000 }, key: { type: "string", enum: ["ENTER", "TAB", "SPACE", "UP", "DOWN", "LEFT", "RIGHT", "BACKSPACE", "DELETE", "HOME", "END", "PAGEDOWN", "PAGEUP"] }, milliseconds: { type: "integer", minimum: 100, maximum: 10000 } }, required: ["action"] } } },
   { type: "function", function: { name: "mcp", description: "Lista ou chama ferramentas de um servidor MCP habilitado nas configurações, sempre após autorização.", parameters: { type: "object", properties: { server: { type: "string" }, action: { type: "string", enum: ["list_tools", "call"] }, tool: { type: "string" }, arguments: { type: "object" } }, required: ["server", "action"] } } },
-  { type: "function", function: { name: "create_file", description: "Cria um arquivo novo autorizado no plano.", parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path"] } } },
+  { type: "function", function: { name: "create_file", description: "Cria um arquivo novo autorizado no plano. Para JSON, envie o documento completo como texto JSON válido; a Dama também normaliza objetos estruturados retornados por provedores compatíveis.", parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path"] } } },
   { type: "function", function: { name: "edit_file", description: "Edita um arquivo autorizado por substituições exatas ou append/prepend, sem reescrever todo o conteúdo.", parameters: { type: "object", properties: { path: { type: "string" }, edits: { type: "array", items: { type: "object", properties: { operation: { type: "string", enum: ["replace", "append", "prepend"] }, old_text: { type: "string" }, new_text: { type: "string" }, replace_all: { type: "boolean" } }, required: ["operation", "new_text"] } } }, required: ["path", "edits"] } } },
   { type: "function", function: { name: "apply_patch", description: "Aplica um diff unificado a um arquivo de texto autorizado, validando todo o contexto antes de gravar.", parameters: { type: "object", properties: { path: { type: "string" }, patch: { type: "string" } }, required: ["path", "patch"] } } },
   { type: "function", function: { name: "copy_file", description: "Copia um arquivo de texto do projeto para um destino autorizado. Não sobrescreve sem overwrite=true.", parameters: { type: "object", properties: { from: { type: "string" }, to: { type: "string" }, overwrite: { type: "boolean" } }, required: ["from", "to"] } } },
   { type: "function", function: { name: "move_file", description: "Move um arquivo de texto; origem e destino precisam estar no escopo aprovado.", parameters: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"] } } },
   { type: "function", function: { name: "rename_file", description: "Renomeia um arquivo de texto; origem e destino precisam estar no escopo aprovado.", parameters: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"] } } },
-  { type: "function", function: { name: "write_file", description: "Grava o conteúdo completo de um arquivo autorizado. Prefira edit_file para mudanças localizadas.", parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] } } },
+  { type: "function", function: { name: "write_file", description: "Grava o conteúdo completo de um arquivo autorizado. Prefira edit_file para mudanças localizadas. Arquivos JSON são validados antes da gravação e nunca aceitam [object Object].", parameters: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] } } },
 ];
 
 function assertAllowedMutation(relativePath, allowedFiles) {
@@ -1267,6 +1435,28 @@ function assertAllowedMutation(relativePath, allowedFiles) {
   if (segments.some((segment) => ignoredDirectories.has(segment))) throw new Error("Pastas internas ou pesadas não podem ser alteradas pelo agente.");
   if (sensitiveFileNames.has(path.basename(normalized).toLowerCase())) throw new Error("Arquivos de credenciais e ambiente não podem ser alterados pelo agente.");
   return normalized;
+}
+
+async function allowConsequentialNewFile(relativePath, allowedFiles, approvalContext = {}) {
+  const normalized = String(relativePath || "").replaceAll("\\", "/");
+  if (!normalized || allowedFiles.has(normalized)) return;
+  const target = await safeRealProjectPath(normalized, true);
+  try {
+    await fs.access(target);
+    return;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const approvedDirectories = new Set([...allowedFiles].map((file) => path.posix.dirname(file)));
+  const directory = path.posix.dirname(normalized);
+  const baseName = path.posix.basename(normalized).toLowerCase();
+  const supported = textExtensions.has(path.posix.extname(normalized).toLowerCase()) || ["dockerfile", ".gitignore", ".editorconfig"].includes(baseName);
+  const expansions = approvalContext.scopeExpansions || new Set();
+  approvalContext.scopeExpansions = expansions;
+  if (!approvedDirectories.has(directory) || !supported || expansions.size >= 16) return;
+  allowedFiles.add(normalized);
+  expansions.add(normalized);
+  emitAgentEvent(approvalContext.runId, "execution", "status", "Escopo ajustado", `${normalized} foi incluído porque a pasta ${directory === "." ? "raiz" : directory} já fazia parte do plano.`, "done");
 }
 
 function assertInsideRealRoot(rootPath, candidatePath) {
@@ -1936,15 +2126,16 @@ async function executeToolCall(toolCall, changedFiles, allowedFiles, snapshots, 
     return { content: JSON.stringify(result).slice(0, 110000), detail: `${result.window?.title || "Janela ativa"} inspecionada no monitor ${result.activeMonitor ?? "identificado"}; ${result.controls?.length || 0} controles visíveis.` };
   }
   if (name === "create_file") {
+    await allowConsequentialNewFile(args.path, allowedFiles, approvalContext);
     const normalizedPath = assertAllowedMutation(args.path, allowedFiles);
     const target = await safeRealProjectPath(normalizedPath, true);
     await rememberChangeSnapshot(normalizedPath, snapshots);
     await fs.mkdir(path.dirname(target), { recursive: true });
-    const nextContent = String(args.content || "");
+    const nextContent = normalizedToolFileContent(normalizedPath, args.content);
     assertNoIntroducedSecret("", nextContent);
     await fs.writeFile(target, nextContent, { encoding: "utf8", flag: "wx" });
     changedFiles.add(normalizedPath);
-    return { content: `Arquivo criado: ${normalizedPath}`, detail: `Criação ${normalizedPath}  +${String(args.content || "").split("\n").length}` };
+    return { content: `Arquivo criado: ${normalizedPath}`, detail: `Criação ${normalizedPath}  +${nextContent.split("\n").length}` };
   }
   if (name === "edit_file") {
     const normalizedPath = assertAllowedMutation(args.path, allowedFiles);
@@ -1968,6 +2159,7 @@ async function executeToolCall(toolCall, changedFiles, allowedFiles, snapshots, 
       nextContent = edit.replace_all ? nextContent.split(oldText).join(nextText) : nextContent.replace(oldText, nextText);
     }
     if (nextContent === previous) return { content: "Nenhuma alteração necessária.", detail: `${normalizedPath} já estava atualizado.` };
+    nextContent = validateStructuredFile(normalizedPath, nextContent);
     assertNoIntroducedSecret(previous, nextContent);
     await fs.writeFile(target, nextContent, "utf8");
     changedFiles.add(normalizedPath);
@@ -1978,8 +2170,9 @@ async function executeToolCall(toolCall, changedFiles, allowedFiles, snapshots, 
     const normalizedPath = assertAllowedMutation(args.path, allowedFiles);
     const target = await safeRealProjectPath(normalizedPath);
     const previous = await readProjectText(normalizedPath);
-    const nextContent = applyUnifiedPatchText(previous, args.patch);
+    let nextContent = applyUnifiedPatchText(previous, args.patch);
     if (nextContent === previous) return { content: "Nenhuma alteração necessária.", detail: `${normalizedPath} já corresponde ao patch.` };
+    nextContent = validateStructuredFile(normalizedPath, nextContent);
     assertNoIntroducedSecret(previous, nextContent);
     await rememberChangeSnapshot(normalizedPath, snapshots);
     await fs.writeFile(target, nextContent, "utf8");
@@ -2021,13 +2214,14 @@ async function executeToolCall(toolCall, changedFiles, allowedFiles, snapshots, 
     return { content: `Arquivo movido: ${sourcePath} → ${destinationPath}`, detail: `${name === "rename_file" ? "Renomeado" : "Movido"} para ${destinationPath}.` };
   }
   if (name === "write_file") {
+    await allowConsequentialNewFile(args.path, allowedFiles, approvalContext);
     const normalizedPath = assertAllowedMutation(args.path, allowedFiles);
     const target = await safeRealProjectPath(normalizedPath, true);
     let previous = "";
     try { previous = await fs.readFile(target, "utf8"); } catch {}
     await rememberChangeSnapshot(normalizedPath, snapshots);
     await fs.mkdir(path.dirname(target), { recursive: true });
-    const nextContent = String(args.content);
+    const nextContent = normalizedToolFileContent(normalizedPath, args.content);
     assertNoIntroducedSecret(previous, nextContent);
     await fs.writeFile(target, nextContent, "utf8");
     changedFiles.add(normalizedPath);
@@ -2222,11 +2416,11 @@ function toolBatchCommentary(toolCalls) {
 
 function toolBatchResultCommentary(results) {
   const edits = results.filter((item) => /^(Editando|Criando|Aplicando|Copiando|Movendo|Renomeando|Excluindo|Baixando)\b/i.test(item.title));
-  if (edits.length) return `As mudanças foram aplicadas em ${edits.map((item) => item.title.replace(/^(Editando|Criando)\s+/i, "")).slice(0, 3).join(", ")}${edits.length > 3 ? " e outros arquivos" : ""}. Vou analisar o resultado e decidir se ainda falta alguma correção.`;
+  if (edits.length) return `Concluí ${edits.length} ${edits.length === 1 ? "alteração" : "alterações"}: ${edits.map((item) => item.detail || item.title).slice(0, 4).join("; ")}${edits.length > 4 ? "; e outros arquivos" : ""}. Agora vou validar o estado resultante.`;
   const searches = results.filter((item) => /^(Buscando|Pesquisando|Recuperando)\b/i.test(item.title));
   if (searches.length) return `A busca terminou com evidências do projeto. Agora vou cruzar os resultados com o pedido antes de escolher os arquivos que precisam mudar.`;
   const reads = results.filter((item) => /^(Lendo|Listando|Consultando|Mapeando|Detectando|Verificando)\b/i.test(item.title));
-  if (reads.length) return `Concluí esta leitura do workspace. Vou usar o conteúdo encontrado para preparar a próxima ação sem sair do escopo aprovado.`;
+  if (reads.length) return `A leitura terminou: ${reads.map((item) => item.title).slice(0, 4).join(", ")}${reads.length > 4 ? " e outros itens" : ""}. Vou usar esses dados na próxima ação.`;
   const commands = results.filter((item) => /^(Executando|Instalando|Usando|Iniciando)\b/i.test(item.title));
   if (commands.length) return "O processo autorizado terminou e a saída já voltou para o contexto. Vou conferir o código de saída e os logs antes de decidir a próxima ação.";
   const browserResults = results.filter((item) => /^(Inspecionando|Pesquisando|Navegando)\b/i.test(item.title));
@@ -2249,31 +2443,38 @@ ipcMain.handle("project:open", async () => {
 });
 
 ipcMain.handle("project:createFromPrompt", async (_event, prompt) => {
-  const words = String(prompt || "novo-projeto").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) || ["novo", "projeto"];
-  const slug = words.slice(0, 5).join("-").slice(0, 56) || "novo-projeto";
-  const base = path.join(app.getPath("documents"), "Dama Projects");
-  let target = path.join(base, slug);
-  let suffix = 2;
-  while (true) {
-    try { await fs.access(target); target = path.join(base, `${slug}-${suffix++}`); }
-    catch { break; }
-  }
-  await fs.mkdir(target, { recursive: true });
-  await fs.writeFile(path.join(target, "README.md"), `# ${slug.replaceAll("-", " ")}\n\nProjeto criado pela Dama.\n`, "utf8");
-  projectRoot = target;
-  await rememberProject(target);
-  return projectSnapshot();
+  return createProjectInDocuments(String(prompt || "Novo projeto").slice(0, 80));
 });
 
-ipcMain.handle("workspace:list", async () => {
+ipcMain.handle("project:create", (_event, name) => createProjectInDocuments(name));
+
+async function workspaceIndexSnapshot() {
   const store = await readWorkspaceStore();
   return {
     projects: store.projects,
     conversations: store.conversations.map(({ data: _data, ...conversation }) => conversation),
     activeProjectPath: projectRoot,
   };
-});
+}
+
+ipcMain.handle("workspace:list", workspaceIndexSnapshot);
 ipcMain.handle("workspace:selectProject", (_event, projectPath) => openProjectAt(projectPath));
+ipcMain.handle("workspace:unlinkProject", async (_event, projectId) => {
+  const store = await readWorkspaceStore();
+  const project = store.projects.find((item) => item.id === String(projectId || ""));
+  if (!project) return workspaceIndexSnapshot();
+  const isActive = projectRoot && path.resolve(projectRoot).toLowerCase() === path.resolve(project.path).toLowerCase();
+  if (isActive && activeAgentRuns.size) throw new Error("Aguarde a execução atual terminar antes de desvincular este projeto.");
+  store.projects = store.projects.filter((item) => item.id !== project.id);
+  await writeWorkspaceStore(store);
+  if (isActive) {
+    stopPreview();
+    stopProjectWatcher();
+    projectRoot = null;
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:changed", null);
+  }
+  return workspaceIndexSnapshot();
+});
 async function saveConversationRecord(payload) {
   const serialized = JSON.stringify(payload?.data || {});
   if (serialized.length > 5 * 1024 * 1024) throw new Error("Esta conversa ficou grande demais para o histórico local.");
@@ -2536,6 +2737,8 @@ ipcMain.handle("toolApprovals:clear", async () => {
   return true;
 });
 ipcMain.handle("agent:approval:pending", () => [...pendingToolApprovals.values()].map((record) => record.request));
+ipcMain.handle("agent:recovery:list", () => listAgentCheckpoints());
+ipcMain.handle("agent:recovery:dismiss", async (_event, id) => { await clearAgentCheckpoint(id); return true; });
 ipcMain.handle("plugin:chooseLocal", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: "Adicionar plugin local à Dama",
@@ -2838,10 +3041,31 @@ ipcMain.handle("agent:execute", async (_event, payload) => {
   if (!projectRoot) throw new Error("Abra um projeto primeiro.");
   const executionStartedAt = Date.now();
   const runId = payload.runId || null;
-  const runState = { stage: "execution", queue: [] };
-  if (runId) activeAgentRuns.set(runId, runState);
   const changedFiles = new Set();
   const changeSnapshots = new Map();
+  const recoveredCheckpoint = payload.recoveryId ? await readAgentCheckpoint(payload.recoveryId) : null;
+  if (recoveredCheckpoint?.projectPath && normalizedProjectKey(recoveredCheckpoint.projectPath) === normalizedProjectKey(projectRoot)) {
+    for (const file of recoveredCheckpoint.changedFiles || []) changedFiles.add(file);
+    for (const [file, snapshot] of recoveredCheckpoint.snapshots || []) changeSnapshots.set(file, snapshot);
+  }
+  const runState = {
+    stage: "execution",
+    queue: [],
+    changedFiles,
+    snapshots: changeSnapshots,
+    checkpoint: runId ? {
+      projectPath: projectRoot,
+      conversationId: payload.conversationId || null,
+      startedAt: recoveredCheckpoint?.startedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      payload: { prompt: payload.prompt, plan: payload.plan, modelId: payload.modelId || null, reasoning: payload.reasoning || "medium", runId, conversationId: payload.conversationId || null, history: (payload.history || []).slice(-40), direct: Boolean(payload.direct), baseChangeSetId: payload.baseChangeSetId || null },
+      events: recoveredCheckpoint?.events || [],
+    } : null,
+  };
+  if (runId) {
+    activeAgentRuns.set(runId, runState);
+    await persistAgentCheckpoint(runId, runState);
+  }
   let baseChangeSet = null;
   if (payload.baseChangeSetId) {
     try {
@@ -2855,6 +3079,7 @@ ipcMain.handle("agent:execute", async (_event, payload) => {
   const allowedFiles = new Set(
     (payload.plan.steps || []).flatMap((step) => step.files || []).map((file) => String(file).replaceAll("\\", "/")),
   );
+  const approvalContext = { runId, chatId: payload.conversationId || null, scopeExpansions: new Set() };
   const engineAddon = await damaEngine.promptAddon();
   const runtimeSettings = await readSettings();
   const computerCapability = `${computerUseCapabilityPrompt(runtimeSettings, "execute")} ${preferredLanguagePrompt(runtimeSettings)}`;
@@ -2864,6 +3089,7 @@ ipcMain.handle("agent:execute", async (_event, payload) => {
   ];
   let finalText = "";
   try {
+    if (recoveredCheckpoint) emitAgentEvent(runId, "execution", "commentary", "Dama", `Recuperei a execução interrompida com ${changedFiles.size} arquivo(s) já alterado(s). Vou reler o estado atual e continuar sem apagar o trabalho salvo.`, "done");
     if (payload.direct && isPreviewOnlyRequest(payload.prompt)) {
       emitAgentEvent(runId, "execution", "status", "Execução direta", "Pedido de preview: iniciando o servidor sem criar plano nem consultar o modelo novamente.", "done");
       emitAgentEvent(runId, "execution", "tool", "Iniciando preview local", "Preparando o localhost do projeto.", "running");
@@ -2876,6 +3102,7 @@ ipcMain.handle("agent:execute", async (_event, payload) => {
       emitAgentEvent(runId, "execution", "message", "Dama", finalText, "done");
       emitAgentEvent(runId, "execution", "done", "Preview iniciado", state.url || "Servidor local em execução.", "done");
       void notifyLongRunCompletion(executionStartedAt, "O Preview solicitado já está disponível.");
+      await clearAgentCheckpoint(runId);
       return result;
     }
     const availableAgentTools = runtimeSettings.computerUse?.enabled ? agentTools : agentTools.filter((tool) => tool.function.name !== "computer_use");
@@ -2919,7 +3146,7 @@ ipcMain.handle("agent:execute", async (_event, payload) => {
           emitAgentEvent(runId, "execution", "tool", progress.title, progress.detail, "running");
           let content;
           try {
-            const toolResult = await executeToolCall(toolCall, changedFiles, allowedFiles, changeSnapshots, { runId, chatId: payload.conversationId || null });
+            const toolResult = await executeToolCall(toolCall, changedFiles, allowedFiles, changeSnapshots, approvalContext);
             content = toolResult.content;
             completedTools.push({ title: progress.title, detail: toolResult.detail || "Ferramenta concluída." });
             emitAgentEvent(runId, "execution", "tool", progress.title, toolResult.detail || "Ferramenta concluída.", "done");
@@ -2987,10 +3214,12 @@ ipcMain.handle("agent:execute", async (_event, payload) => {
     emitAgentEvent(runId, "execution", "message", "Dama", finalText, "done");
     emitAgentEvent(runId, "execution", "done", "Execução concluída", result.changedFiles.length ? `${result.changedFiles.length} arquivo(s) alterado(s).` : "Nenhum arquivo precisou ser alterado.", "done");
     void notifyLongRunCompletion(executionStartedAt, result.changedFiles.length ? `${result.changedFiles.length} arquivo(s) alterado(s).` : "A tarefa foi concluída.");
+    await clearAgentCheckpoint(runId);
     return result;
   } catch (error) {
     emitAgentEvent(runId, "execution", "error", "A execução foi interrompida", error.message, "error");
     void notifyLongRunCompletion(executionStartedAt, `A execução terminou com um erro: ${String(error?.message || error).slice(0, 180)}`);
+    await clearAgentCheckpoint(runId);
     throw error;
   } finally {
     if (activeAgentRuns.get(runId) === runState) activeAgentRuns.delete(runId);
@@ -3246,6 +3475,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
+  stopProjectWatcher();
   void remoteManager?.stop();
   professionalRuntime?.stopAll();
   stopComputerSession("app-quit");
