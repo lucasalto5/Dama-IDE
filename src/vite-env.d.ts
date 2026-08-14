@@ -43,6 +43,7 @@ type DamaSettings = {
   remote: { appUrl: string };
   damaEngine: { baseModelId: string | null };
   computerUse: { enabled: boolean };
+  permissions: { fullAccess: boolean };
   projectMemory: { enabled: boolean };
   mcpServers: Array<{ id: string; name: string; transport: "stdio" | "http"; command?: string; args?: string; url?: string; enabled: boolean }>;
   plugins: Array<{ id: string; name: string; version: string; description?: string; path: string; enabled: boolean }>;
@@ -128,6 +129,7 @@ type ToolApprovalRequest = {
   status?: "pending" | "approved" | "denied";
   decision?: ToolApprovalDecision;
 };
+type AgentRecovery = { id: string; status: "interrupted"; projectPath: string; conversationId: string | null; startedAt: string; updatedAt: string; payload: { prompt: string; plan: Plan; modelId?: string | null; reasoning?: string; runId: string; conversationId?: string | null; history?: Array<{ role: "user" | "assistant"; content: string }>; direct?: boolean; baseChangeSetId?: string | null }; events: AgentProgressEvent[]; changedFiles: string[] };
 
 interface Window {
   dama?: {
@@ -203,10 +205,12 @@ interface Window {
     setDamaEngineBaseModel: (id: string | null) => Promise<ModelsState>;
     clearToolApprovals: () => Promise<boolean>;
     listPendingToolApprovals: () => Promise<ToolApprovalRequest[]>;
+    listAgentRecoveries: () => Promise<AgentRecovery[]>;
+    dismissAgentRecovery: (id: string) => Promise<boolean>;
     chooseLocalPlugin: () => Promise<DamaSettings["plugins"][number] | null>;
     createPlan: (prompt: string, modelId?: string | null, reasoning?: string, runId?: string, history?: Array<{ role: "user" | "assistant"; content: string }>, forcePlan?: boolean) => Promise<AgentPreparation>;
     revisePlan: (payload: { originalPrompt: string; instruction: string; plan: Plan; modelId?: string | null; reasoning?: string; runId?: string; history?: Array<{ role: "user" | "assistant"; content: string }> }) => Promise<Plan>;
-    executePlan: (payload: { prompt: string; plan: Plan; modelId?: string | null; reasoning?: string; runId?: string; conversationId?: string | null; history?: Array<{ role: "user" | "assistant"; content: string }>; direct?: boolean; baseChangeSetId?: string | null }) => Promise<AgentResult>;
+    executePlan: (payload: { prompt: string; plan: Plan; modelId?: string | null; reasoning?: string; runId?: string; conversationId?: string | null; history?: Array<{ role: "user" | "assistant"; content: string }>; direct?: boolean; baseChangeSetId?: string | null; recoveryId?: string | null }) => Promise<AgentResult>;
     getChangeSet: (id: string) => Promise<ChangeSetSummary>;
     getChangeDiff: (id: string, relativePath: string) => Promise<ChangeDiff>;
     acceptChangeSet: (id: string) => Promise<ChangeSetResolution>;

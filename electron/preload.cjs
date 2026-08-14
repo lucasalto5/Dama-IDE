@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("dama", {
-  apiVersion: 13,
+  apiVersion: 14,
   openProject: () => ipcRenderer.invoke("project:open"),
   createProject: (name) => ipcRenderer.invoke("project:create", name),
   selectProject: (projectPath) => ipcRenderer.invoke("workspace:selectProject", projectPath),
@@ -113,6 +113,8 @@ contextBridge.exposeInMainWorld("dama", {
   setDamaEngineBaseModel: (id) => ipcRenderer.invoke("damaEngine:setBaseModel", id),
   clearToolApprovals: () => ipcRenderer.invoke("toolApprovals:clear"),
   listPendingToolApprovals: () => ipcRenderer.invoke("agent:approval:pending"),
+  listAgentRecoveries: () => ipcRenderer.invoke("agent:recovery:list"),
+  dismissAgentRecovery: (id) => ipcRenderer.invoke("agent:recovery:dismiss", id),
   chooseLocalPlugin: () => ipcRenderer.invoke("plugin:chooseLocal"),
   createPlan: (prompt, modelId, reasoning, runId, history, forcePlan) => ipcRenderer.invoke("agent:plan", { prompt, modelId, reasoning, runId, history, forcePlan }),
   revisePlan: (payload) => ipcRenderer.invoke("agent:revisePlan", payload),

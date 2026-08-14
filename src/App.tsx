@@ -94,6 +94,7 @@ const browserSettings: DamaSettings = {
   remote: { appUrl: "https://dama-remote.vercel.app" },
   damaEngine: { baseModelId: null },
   computerUse: { enabled: false },
+  permissions: { fullAccess: false },
   projectMemory: { enabled: false },
   mcpServers: [],
   plugins: [],
@@ -547,7 +548,7 @@ function SettingsCenter({ initial, modelsState, workspaceIndex, onModelsChange, 
       {section === "appearance" && <SettingsGroup title="Interface" description="Estas opções são aplicadas ao salvar."><Field label="Idioma da interface"><select value={draft.agent.language} onChange={(event) => patch("agent", { ...draft.agent, language: event.target.value })}><option value="pt-BR">Português (Brasil)</option><option value="en-US">English</option><option value="es-ES">Español</option></select></Field><Field label="Densidade"><select value={draft.appearance.density} onChange={(event) => patch("appearance", { ...draft.appearance, density: event.target.value })}><option value="compact">Compacta</option><option value="comfortable">Confortável</option><option value="spacious">Espaçosa</option></select></Field><Field label="Cor de destaque"><select value={draft.appearance.accent} onChange={(event) => patch("appearance", { ...draft.appearance, accent: event.target.value })}><option value="amber">Âmbar</option><option value="green">Verde</option><option value="blue">Azul</option><option value="violet">Violeta</option><option value="neutral">Neutra</option></select></Field><Field label="Superfície"><select value={draft.appearance.surface} onChange={(event) => patch("appearance", { ...draft.appearance, surface: event.target.value })}><option value="warm">Grafite quente</option><option value="black">Preto profundo</option><option value="slate">Azul ardósia</option></select></Field><Toggle label="Animações da interface" detail="Transições mais suaves entre telas e estados" checked={draft.appearance.motion} onChange={(value) => patch("appearance", { ...draft.appearance, motion: value })} /><Toggle label="Painel de contexto aberto" detail="Mostra atividade e estado do projeto à direita" checked={draft.appearance.contextPanel} onChange={(value) => patch("appearance", { ...draft.appearance, contextPanel: value })} /></SettingsGroup>}
       {section === "notifications" && <><SettingsGroup title="Notificações" description="A Dama usa as notificações nativas do Windows para avisos importantes."><Toggle label="Ativar notificações" detail="Permite que a Dama envie avisos do sistema" checked={draft.notifications.enabled} onChange={(value) => patch("notifications", { ...draft.notifications, enabled: value })} /><Toggle label="Autorizações pendentes" detail="Avisa quando uma ferramenta precisa da sua decisão" checked={draft.notifications.approvals} onChange={(value) => patch("notifications", { ...draft.notifications, approvals: value })} /><Toggle label="Execuções longas concluídas" detail="Avisa quando o agente termina um trabalho demorado" checked={draft.notifications.completion} onChange={(value) => patch("notifications", { ...draft.notifications, completion: value })} /><Toggle label="Somente quando a Dama não estiver em foco" detail="Evita avisos duplicados enquanto você já está olhando a execução" checked={draft.notifications.onlyWhenUnfocused} onChange={(value) => patch("notifications", { ...draft.notifications, onlyWhenUnfocused: value })} /><RangeField label="Tempo mínimo para considerar uma execução longa" value={draft.notifications.longRunSeconds} min={5} max={120} step={5} onChange={(value) => patch("notifications", { ...draft.notifications, longRunSeconds: value })} /></SettingsGroup></>}
       {section === "updates" && <><SettingsGroup title="Atualizações" description="Novas versões são verificadas em um canal assinado e instaladas pelo atualizador da Dama."><Toggle label="Atualização automática" detail="Baixa e instala a versão mais recente ao abrir a Dama" checked={draft.updates.automatic} onChange={(value) => patch("updates", { ...draft.updates, automatic: value })} /><Toggle label="Procurar ao iniciar" detail="Consulta o canal estável sempre que a Dama for aberta" checked={draft.updates.checkOnStartup} onChange={(value) => patch("updates", { ...draft.updates, checkOnStartup: value })} /><div className="update-settings-status"><div><strong>Versão instalada</strong><span>{updateState?.currentVersion || "0.12.3"}</span></div><div><strong>Estado</strong><span>{updateState?.status === "checking" ? "Procurando…" : updateState?.status === "available" ? `Versão ${updateState.version} disponível` : updateState?.status === "downloading" ? `Baixando · ${Math.round(updateState.percent)}%` : updateState?.status === "downloaded" || updateState?.status === "installing" ? "Pronta para instalar" : updateState?.status === "current" ? "Atualizada" : updateState?.status === "unsupported" ? "Disponível no aplicativo instalado" : updateState?.status === "error" ? "Falha na verificação" : "Pronta para verificar"}</span></div></div>{updateState?.error && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{updateState.error}</span></div>}{updateState?.rollbackError && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{updateState.rollbackError}</span></div>}<div className="update-settings-actions"><button className="secondary-button" disabled={updateState?.status === "checking" || updateState?.status === "downloading"} onClick={() => void window.dama?.checkForUpdates()}>{updateState?.status === "checking" ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />} Procurar atualização</button><button className="quiet-button" disabled={updateState?.rollbackStatus === "checking" || updateState?.rollbackStatus === "downloading" || updateState?.status === "installing"} onClick={() => void window.dama?.rollbackUpdate()}>{updateState?.rollbackStatus === "checking" || updateState?.rollbackStatus === "downloading" ? <LoaderCircle className="spin" size={13} /> : <Undo2 size={13} />} Restaurar versão anterior</button></div></SettingsGroup></>}
-      {section === "privacy" && <><SettingsGroup title="Dados e privacidade" description="Projetos e conversas ficam somente neste computador. A Dama não possui telemetria nem envio automático de diagnóstico."><Toggle label="Histórico local" detail="Salvar conversas para continuar depois e alternar entre projetos" checked={draft.privacy.localHistory} onChange={(value) => patch("privacy", { ...draft.privacy, localHistory: value })} /><Toggle disabled label="Telemetria anônima" detail="Indisponível e desligada" checked={false} onChange={() => {}} /><Toggle disabled label="Relatórios de diagnóstico" detail="Indisponível e desligado" checked={false} onChange={() => {}} /></SettingsGroup><SettingsGroup title="Permissões de ferramentas" description="Autorizações de chat, projeto e comandos específicos ficam salvas apenas neste computador."><div className="reset-onboarding"><div><strong>{permissionsCleared ? "Permissões revogadas" : "Revogar permissões persistentes"}</strong><small>Na próxima operação protegida, o agente voltará a mostrar o card de autorização.</small></div><button className="secondary-button" onClick={async () => { await window.dama?.clearToolApprovals(); setPermissionsCleared(true); }}>Revogar todas</button></div></SettingsGroup></>}
+      {section === "privacy" && <><SettingsGroup title="Dados e privacidade" description="Projetos e conversas ficam somente neste computador. A Dama não possui telemetria nem envio automático de diagnóstico."><Toggle label="Histórico local" detail="Salvar conversas para continuar depois e alternar entre projetos" checked={draft.privacy.localHistory} onChange={(value) => patch("privacy", { ...draft.privacy, localHistory: value })} /><Toggle disabled label="Telemetria anônima" detail="Indisponível e desligada" checked={false} onChange={() => {}} /><Toggle disabled label="Relatórios de diagnóstico" detail="Indisponível e desligado" checked={false} onChange={() => {}} /></SettingsGroup><SettingsGroup title="Acesso ao computador" description="Controle geral das autorizações usadas pelas ferramentas do agente."><Toggle label="Acesso total ao computador" detail="Permite comandos, instalações, downloads, Git, MCP e controle assistido sem mostrar um card a cada ação." checked={draft.permissions.fullAccess} onChange={(value) => { patch("permissions", { fullAccess: value }); if (value) patch("computerUse", { enabled: true }); }} /><div className="settings-inline-warning"><AlertCircle size={14} /><span>Desligado por padrão. Ative somente para modelos e projetos em que você confia. Limites de caminho, proteção de credenciais e validações destrutivas continuam ativos.</span></div></SettingsGroup><SettingsGroup title="Permissões de ferramentas" description="Autorizações de chat, projeto e comandos específicos ficam salvas apenas neste computador."><div className="reset-onboarding"><div><strong>{permissionsCleared ? "Permissões revogadas" : "Revogar permissões persistentes"}</strong><small>Na próxima operação protegida, o agente voltará a mostrar o card de autorização.</small></div><button className="secondary-button" onClick={async () => { await window.dama?.clearToolApprovals(); setPermissionsCleared(true); }}>Revogar todas</button></div></SettingsGroup></>}
     </div><footer><span>{saved ? <><Check size={12} /> Preferências salvas</> : "Alterações ficam locais"}</span><button className="primary-button" onClick={save} disabled={saving}>{saving ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />} Salvar alterações</button></footer></main>
   </section></div>;
 }
@@ -690,6 +691,7 @@ export default function App() {
   const [changeDiff, setChangeDiff] = useState<ChangeDiff | null>(null);
   const [changeResolving, setChangeResolving] = useState(false);
   const [agentEvents, setAgentEvents] = useState<AgentProgressEvent[]>([]);
+  const [agentRecovery, setAgentRecovery] = useState<AgentRecovery | null>(null);
   const [agentMessages, setAgentMessages] = useState<AgentThreadMessage[]>([]);
   const [agentPlans, setAgentPlans] = useState<AgentPlanRecord[]>([]);
   const [toolApprovals, setToolApprovals] = useState<ToolApprovalRequest[]>([]);
@@ -755,22 +757,34 @@ export default function App() {
         if (selected) setConnector({ configured: true, model: selected.model, url: selected.url, kind: selected.kind });
         if (hasWorkspaceApi()) {
           const index = await window.dama.listWorkspace();
+          const recoveries = window.dama.listAgentRecoveries ? await window.dama.listAgentRecoveries() : [];
+          const recovery = recoveries[0] || null;
           if (!active) return;
           setWorkspaceIndex(index);
-          const recentProject = index.projects[0];
+          const recentProject = index.projects.find((item) => recovery && item.path.toLowerCase() === recovery.projectPath.toLowerCase()) || index.projects[0];
           if (recentProject) {
             const opened = await window.dama.selectProject(recentProject.path);
             if (!active) return;
             setProject(opened);
             setGit(await window.dama.gitSummary());
-            const recentConversation = index.conversations.find((item) => item.projectPath.toLowerCase() === recentProject.path.toLowerCase());
+            const recentConversation = index.conversations.find((item) => recovery?.conversationId === item.id) || index.conversations.find((item) => item.projectPath.toLowerCase() === recentProject.path.toLowerCase());
             if (recentConversation) await restoreConversation(recentConversation.id, false);
             else startNewConversation("agent");
           }
-        } else if (window.dama.apiVersion !== 13) {
+          if (recovery) {
+            setAgentRecovery(recovery);
+            setView("agent");
+            setPhase("error");
+            setAgentEvents((current) => {
+              const ids = new Set(current.map((item) => item.id));
+              return [...current, ...recovery.events.filter((item) => !ids.has(item.id))].sort((left, right) => left.at.localeCompare(right.at));
+            });
+            setAgentPlans((current) => current.some((item) => item.runId === recovery.payload.runId) ? current : [...current, { id: recovery.payload.runId, runId: recovery.payload.runId, prompt: recovery.payload.prompt, plan: recovery.payload.plan, status: "error", result: null, baseChangeSetId: recovery.payload.baseChangeSetId, at: recovery.startedAt }]);
+          }
+        } else if (window.dama.apiVersion !== 14) {
           setError("A interface foi atualizada, mas o processo desktop ainda é da versão anterior. Feche a Dama completamente e abra novamente para ativar projetos e conversas.");
         }
-        if (window.dama.apiVersion !== 13) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para ativar a sincronização e o gerenciamento de projetos.");
+        if (window.dama.apiVersion !== 14) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para ativar recuperação e permissões.");
       }
     })().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => {
       window.clearTimeout(splashTimer);
@@ -1405,6 +1419,45 @@ export default function App() {
     }
   }
 
+  async function resumeAgentRecovery() {
+    const recovery = agentRecovery;
+    if (!recovery || !window.dama) return;
+    const activityId = addActivity("Retomando execução", recovery.payload.plan.title);
+    try {
+      if (!project || project.path.toLowerCase() !== recovery.projectPath.toLowerCase()) {
+        const opened = await window.dama.selectProject(recovery.projectPath);
+        setProject(opened);
+        setGit(await window.dama.gitSummary());
+      }
+      setAgentRecovery(null);
+      setView("agent");
+      setPhase("executing");
+      activeRunId.current = recovery.payload.runId;
+      setAgentPlans((current) => current.map((item) => item.runId === recovery.payload.runId ? { ...item, status: "executing" } : item));
+      const result = await window.dama.executePlan({ ...recovery.payload, recoveryId: recovery.id, conversationId: recovery.conversationId || activeConversationId });
+      setAgentResult(result);
+      setAgentPlans((current) => current.map((item) => item.runId === recovery.payload.runId ? { ...item, status: "done", result } : item));
+      if (result.project) setProject(result.project);
+      setGit(result.git);
+      setPhase("done");
+      finishActivity(activityId, `${result.changedFiles.length} arquivo(s) no ponto de restauração`);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setAgentPlans((current) => current.map((item) => item.runId === recovery.payload.runId ? { ...item, status: "error" } : item));
+      setError(message);
+      setPhase("error");
+      finishActivity(activityId, message, "error");
+    }
+  }
+
+  async function dismissAgentRecovery() {
+    const recovery = agentRecovery;
+    if (!recovery || !window.dama) return;
+    await window.dama.dismissAgentRecovery(recovery.id);
+    setAgentRecovery(null);
+    setAgentEvents((current) => [...current, { id: crypto.randomUUID(), runId: recovery.payload.runId, at: new Date().toISOString(), stage: "execution", type: "commentary", title: "Dama", detail: "O estado interrompido foi encerrado. Os arquivos que já estavam gravados continuam no projeto.", state: "done" }]);
+  }
+
   function editPlan(planId: string) {
     const record = agentPlans.find((item) => item.id === planId);
     if (!record) return;
@@ -1575,6 +1628,9 @@ export default function App() {
               onReasoningChange={setReasoning}
               references={agentReferences}
               onRemoveReference={(key) => setAgentReferences((current) => current.filter((reference) => reference.key !== key))}
+              recovery={agentRecovery}
+              onResumeRecovery={resumeAgentRecovery}
+              onDismissRecovery={dismissAgentRecovery}
             />
           )}
           {view === "changes" && <ChangesView changeSet={changeSet} diff={changeDiff} onSelect={openChangeDiff} onBack={() => setView("agent")} />}
@@ -1881,6 +1937,7 @@ function AgentView(props: {
   models: ModelProfile[]; selectedModelId: string | null; onModelChange: (id: string) => void; reasoning: string; onReasoningChange: (value: string) => void;
   teamMode: boolean;
   references: PreviewElementReference[]; onRemoveReference: (key: string) => void;
+  recovery: AgentRecovery | null; onResumeRecovery: () => Promise<void>; onDismissRecovery: () => Promise<void>;
 }) {
   const busy = props.phase === "planning" || props.phase === "executing";
   const { scrollRef, onScroll } = useConversationScroll([props.messages.length, props.plans.length, props.events.length, props.approvals.length, props.approvals.at(-1)?.status, props.events.at(-1)?.detail, props.phase]);
@@ -1928,6 +1985,7 @@ function AgentView(props: {
           </div>
         ) : (
           <div className="agent-thread" aria-live="polite">
+            {props.recovery && <section className="agent-recovery-card"><div><RefreshCw size={16} /><span><strong>Execução recuperada</strong><small>{props.recovery.changedFiles.length ? `${props.recovery.changedFiles.length} arquivo(s) já estavam alterados e foram preservados.` : "A conversa e o andamento foram restaurados após a interrupção."}</small></span></div><p>Retomar relê o projeto atual antes de continuar. Comandos interrompidos não são presumidos como concluídos.</p><footer><button className="quiet-button" onClick={() => void props.onDismissRecovery()}>Encerrar</button><button className="primary-button" onClick={() => void props.onResumeRecovery()}><Play size={12} /> Retomar</button></footer></section>}
             {feed.map((entry) => {
               if (entry.kind === "message") return entry.item.role === "user"
                 ? <article className="agent-user-message" key={entry.id}><span>Você</span><MarkdownContent content={entry.item.content} projectFiles={projectFiles} onOpenFile={props.onOpenFile} /></article>
@@ -2004,7 +2062,7 @@ function AgentActivitySummary({ events }: { events: AgentProgressEvent[] }) {
   const parts = [edited && "Editou arquivos", commands && "executou comandos", searched && "pesquisou no projeto", inspected && !searched && "consultou o projeto"].filter(Boolean) as string[];
   let label = parts.length ? parts.join(parts.length > 1 ? " e " : "") : events.some((event) => event.stage === "planning") ? "Analisou o pedido e o projeto" : "Preparou a próxima etapa";
   if (running) label = tools.at(-1)?.title || events.at(-1)?.title || "Trabalhando";
-  return <details className={`agent-activity-summary ${running ? "running" : ""}`} open={running || undefined}>
+  return <details className={`agent-activity-summary ${running ? "running" : ""}`} open={running || edited || undefined}>
     <summary>{running ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}<span>{label}</span><ChevronRight size={13} /></summary>
     <div>{events.map((event) => <div className="agent-activity-detail" key={event.id}><span>{event.state === "running" ? <LoaderCircle className="spin" size={12} /> : <Check size={12} />}</span><p><strong>{event.title}</strong>{event.detail && <small>{event.detail}</small>}</p></div>)}</div>
   </details>;
