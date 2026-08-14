@@ -44,6 +44,7 @@ import {
   Plug,
   Plus,
   Puzzle,
+  QrCode,
   RefreshCw,
   Save,
   Search,
@@ -51,6 +52,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Smartphone,
   Square,
   TerminalSquare,
   Trash2,
@@ -85,7 +87,8 @@ const browserSettings: DamaSettings = {
   privacy: { telemetry: false, diagnostics: false, localHistory: true },
   notifications: { enabled: true, approvals: true, completion: true, onlyWhenUnfocused: true, longRunSeconds: 20 },
   updates: { automatic: true, checkOnStartup: true, channel: "stable" },
-  appearance: { density: "comfortable", motion: true, contextPanel: true, accent: "amber", surface: "warm" },
+  appearance: { density: "comfortable", motion: true, contextPanel: true, accent: "amber", surface: "warm", scale: 1.12 },
+  remote: { appUrl: "https://dama-remote.vercel.app" },
   damaEngine: { baseModelId: null },
   computerUse: { enabled: false },
   projectMemory: { enabled: false },
@@ -371,7 +374,7 @@ function Choice({ selected, icon, title, detail, badge, onClick }: { selected: b
   return <button className={`choice-card ${selected ? "selected" : ""}`} onClick={onClick}>{icon && <span className="choice-icon">{icon}</span>}<span><strong>{title}</strong><small>{detail}</small></span>{badge && <em>{badge}</em>}<span className="choice-check">{selected && <Check size={11} />}</span></button>;
 }
 
-type SettingsSection = "profile" | "models" | "dama" | "agent" | "mcp" | "plugins" | "appearance" | "notifications" | "updates" | "privacy";
+type SettingsSection = "profile" | "models" | "dama" | "remote" | "agent" | "mcp" | "plugins" | "appearance" | "notifications" | "updates" | "privacy";
 
 function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave, onConfigureModel, onResetOnboarding }: { initial: DamaSettings; modelsState: ModelsState; onModelsChange: (state: ModelsState) => void; onClose: () => void; onSave: (settings: DamaSettings) => Promise<void>; onConfigureModel: () => void; onResetOnboarding: () => Promise<void> }) {
   const [section, setSection] = useState<SettingsSection>("profile");
@@ -385,10 +388,12 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
   const [engineBusy, setEngineBusy] = useState(false);
   const [engineError, setEngineError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  const [remoteState, setRemoteState] = useState<RemoteState | null>(null);
+  const [remoteBusy, setRemoteBusy] = useState(false);
   const [mcpDraft, setMcpDraft] = useState({ name: "", transport: "stdio" as "stdio" | "http", value: "" });
   const sections: Array<{ id: SettingsSection; label: string; icon: typeof UserRound }> = [
     { id: "profile", label: "Perfil", icon: UserRound }, { id: "models", label: "Modelos", icon: Bot },
-    { id: "dama", label: "Dama AI", icon: Sparkles },
+    { id: "dama", label: "Dama AI", icon: Sparkles }, { id: "remote", label: "Dama Remote", icon: Smartphone },
     { id: "agent", label: "Agente", icon: SlidersHorizontal }, { id: "mcp", label: "MCP", icon: Plug },
     { id: "plugins", label: "Plugins", icon: Puzzle }, { id: "appearance", label: "Aparência", icon: Palette },
     { id: "notifications", label: "Notificações", icon: Bell }, { id: "updates", label: "Atualizações", icon: RefreshCw },
@@ -406,6 +411,14 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
     let current = true;
     window.dama.getUpdateState().then((state) => { if (current) setUpdateState(state); });
     const dispose = window.dama.onUpdateState((state) => { if (current) setUpdateState(state); });
+    return () => { current = false; dispose(); };
+  }, []);
+
+  useEffect(() => {
+    if (!window.dama?.getRemoteState) return;
+    let current = true;
+    window.dama.getRemoteState().then((state) => { if (current) setRemoteState(state); });
+    const dispose = window.dama.onRemoteState((state) => { if (current) setRemoteState(state); });
     return () => { current = false; dispose(); };
   }, []);
 
@@ -451,6 +464,14 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
     } finally { setEngineBusy(false); }
   }
 
+  async function runRemoteAction(action: "start" | "stop") {
+    if (!window.dama) return;
+    setRemoteBusy(true);
+    try {
+      setRemoteState(action === "start" ? await window.dama.startRemote() : await window.dama.stopRemote());
+    } finally { setRemoteBusy(false); }
+  }
+
   async function chooseDamaBaseModel(baseModelId: string | null) {
     setEngineError(null);
     setDraft((current) => ({ ...current, damaEngine: { baseModelId } }));
@@ -463,8 +484,10 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
   }
 
   return <div className="settings-backdrop"><section className="settings-center">
-    <aside><div className="settings-brand"><DinoLogo /><strong>Configurações</strong></div><nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon size={14} />{item.label}</button>; })}</nav><div className="settings-version">Dama 0.10.1 · preview</div></aside>
+    <aside><div className="settings-brand"><DinoLogo /><strong>Configurações</strong></div><nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon size={14} />{item.label}</button>; })}</nav><div className="settings-version">Dama 0.12.0 · preview</div></aside>
     <main><header><div><span className="eyebrow">Preferências</span><h2>{sections.find((item) => item.id === section)?.label}</h2></div><button className="icon-button" onClick={onClose}><X size={17} /></button></header><div className="settings-scroll" key={section}>
+      {section === "remote" && <RemoteSettings state={remoteState} busy={remoteBusy} appUrl={draft.remote.appUrl} onAppUrlChange={(appUrl) => patch("remote", { appUrl })} onAction={runRemoteAction} />}
+      {section === "appearance" && <SettingsGroup title="Leitura" description="Aumenta toda a interface mantendo as proporções do aplicativo."><Field label="Tamanho da interface"><select value={draft.appearance.scale || 1.12} onChange={(event) => patch("appearance", { ...draft.appearance, scale: Number(event.target.value) })}><option value={1}>100% · compacto</option><option value={1.12}>112% · recomendado</option><option value={1.25}>125% · grande</option><option value={1.4}>140% · muito grande</option></select></Field></SettingsGroup>}
       {section === "models" && modelsState.models.length > 0 && <SettingsGroup title="Diagnóstico de conexão" description="Repete o teste usando o endpoint e o token protegido já salvos."><div className="model-list test-list">{modelsState.models.map((model) => <div key={model.id}><span className="model-live" /><div><strong>{model.name}</strong><em className={modelTestResults[model.id]?.startsWith("Conexão") ? "test-ok" : ""}>{modelTestResults[model.id] || "Pronto para testar"}</em></div><button className="quiet-button" disabled={testingModelId === model.id} onClick={() => testExistingModel(model.id)}>{testingModelId === model.id ? <LoaderCircle className="spin" size={12} /> : <Activity size={12} />} Testar</button></div>)}</div></SettingsGroup>}
       {section === "profile" && <><SettingsGroup title="Seu perfil" description="Personaliza como a Dama conversa com você."><Field label="Como devemos chamar você?"><input value={draft.profile.name} onChange={(event) => patch("profile", { ...draft.profile, name: event.target.value })} /></Field><Field label="Finalidade principal"><select value={draft.profile.useCase} onChange={(event) => patch("profile", { ...draft.profile, useCase: event.target.value })}><option value="work">Trabalho</option><option value="product">Criar produtos</option><option value="learning">Aprender</option><option value="personal">Projetos pessoais</option></select></Field><Field label="Nível de detalhe"><select value={draft.profile.experience} onChange={(event) => patch("profile", { ...draft.profile, experience: event.target.value })}><option value="beginner">Explicativo</option><option value="intermediate">Equilibrado</option><option value="expert">Objetivo e técnico</option></select></Field></SettingsGroup><SettingsGroup title="Primeira execução" description="Revise novamente as perguntas de personalização."><div className="reset-onboarding"><div><strong>Refazer onboarding</strong><small>Suas integrações e projetos não serão removidos.</small></div><button className="secondary-button" onClick={onResetOnboarding}>Começar novamente</button></div></SettingsGroup></>}
       {section === "models" && <>
@@ -506,6 +529,23 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
       {section === "privacy" && <><SettingsGroup title="Dados e privacidade" description="Projetos e conversas ficam somente neste computador. A Dama não possui telemetria nem envio automático de diagnóstico."><Toggle label="Histórico local" detail="Salvar conversas para continuar depois e alternar entre projetos" checked={draft.privacy.localHistory} onChange={(value) => patch("privacy", { ...draft.privacy, localHistory: value })} /><Toggle disabled label="Telemetria anônima" detail="Indisponível e desligada" checked={false} onChange={() => {}} /><Toggle disabled label="Relatórios de diagnóstico" detail="Indisponível e desligado" checked={false} onChange={() => {}} /></SettingsGroup><SettingsGroup title="Permissões de ferramentas" description="Autorizações de chat, projeto e comandos específicos ficam salvas apenas neste computador."><div className="reset-onboarding"><div><strong>{permissionsCleared ? "Permissões revogadas" : "Revogar permissões persistentes"}</strong><small>Na próxima operação protegida, o agente voltará a mostrar o card de autorização.</small></div><button className="secondary-button" onClick={async () => { await window.dama?.clearToolApprovals(); setPermissionsCleared(true); }}>Revogar todas</button></div></SettingsGroup></>}
     </div><footer><span>{saved ? <><Check size={12} /> Preferências salvas</> : "Alterações ficam locais"}</span><button className="primary-button" onClick={save} disabled={saving}>{saving ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />} Salvar alterações</button></footer></main>
   </section></div>;
+}
+
+function RemoteSettings({ state, busy, appUrl, onAppUrlChange, onAction }: { state: RemoteState | null; busy: boolean; appUrl: string; onAppUrlChange: (value: string) => void; onAction: (action: "start" | "stop") => Promise<void> }) {
+  return <>
+    <SettingsGroup title="Acesso pelo celular" description="O celular conversa diretamente com este computador. O site não recebe o token, os modelos, os arquivos nem as conversas.">
+      <div className={`remote-settings-card ${state?.status || "off"}`}>
+        <div className="remote-settings-icon"><Smartphone size={22} /></div>
+        <div><span className="eyebrow">{state?.status === "ready" ? "Pronto para parear" : state?.status === "downloading" ? "Preparando conexão" : state?.status === "starting" ? "Iniciando" : state?.status === "error" ? "Falha na conexão" : "Desligado"}</span><strong>Dama Remote</strong><p>{state?.status === "ready" ? (state.connected ? "Celular conectado a este computador." : "Leia o QR Code com a câmera do celular.") : state?.detail || state?.error || "Ative somente quando quiser acessar a Dama em outro dispositivo."}</p></div>
+        <span className={`remote-live ${state?.connected ? "connected" : ""}`} />
+      </div>
+      {state?.status === "ready" && state.qrDataUrl && <div className="remote-pairing"><img src={state.qrDataUrl} alt="QR Code do Dama Remote" /><div><strong>Abrir no celular</strong><p>Leia este código com a câmera. O endereço e a chave de sessão entram no navegador sem passar pelo servidor da Dama.</p>{state.endpoint && <code>{state.endpoint}</code>}<small>A sessão expira quando você desligar o Remote ou fechar a Dama.</small></div></div>}
+      {state?.error && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{state.error}</span></div>}
+      <div className="remote-actions">{state?.enabled ? <button className="secondary-button" disabled={busy} onClick={() => void onAction("stop")}>{busy ? <LoaderCircle className="spin" size={13} /> : <Square size={12} />} Desligar acesso</button> : <button className="primary-button" disabled={busy} onClick={() => void onAction("start")}>{busy ? <LoaderCircle className="spin" size={13} /> : <QrCode size={13} />} Gerar acesso seguro</button>}</div>
+    </SettingsGroup>
+    <SettingsGroup title="Endereço do aplicativo móvel" description="Use a implantação oficial ou uma cópia própria do Dama Remote."><Field label="URL do Dama Remote"><input value={appUrl} onChange={(event) => onAppUrlChange(event.target.value)} placeholder="https://dama-remote.vercel.app" /></Field></SettingsGroup>
+    <SettingsGroup title="Segurança" description="A primeira versão usa um túnel HTTPS de saída e uma chave aleatória de 256 bits."><div className="remote-security"><span><ShieldCheck size={14} /><div><strong>Nenhuma porta do roteador é aberta</strong><small>A conexão sai deste computador e pode ser encerrada a qualquer momento.</small></div></span><span><Globe2 size={14} /><div><strong>Recurso beta</strong><small>O túnel gratuito pode mudar de endereço ou ficar temporariamente indisponível.</small></div></span></div></SettingsGroup>
+  </>;
 }
 
 function ModelRoutingSettings({ modelsState, onUpdate, onSetActive }: { modelsState: ModelsState; onUpdate: (routing: ModelRouting) => Promise<void>; onSetActive: (id: string) => Promise<void> }) {
@@ -699,10 +739,10 @@ export default function App() {
             if (recentConversation) await restoreConversation(recentConversation.id, false);
             else startNewConversation("agent");
           }
-        } else if (window.dama.apiVersion !== 8) {
+        } else if (window.dama.apiVersion !== 9) {
           setError("A interface foi atualizada, mas o processo desktop ainda é da versão anterior. Feche a Dama completamente e abra novamente para ativar projetos e conversas.");
         }
-        if (window.dama.apiVersion !== 8) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para carregar notificações, idiomas e atualizações automáticas.");
+        if (window.dama.apiVersion !== 9) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para carregar notificações, idiomas e atualizações automáticas.");
       }
     })().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => {
       window.clearTimeout(splashTimer);

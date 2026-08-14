@@ -17,6 +17,7 @@ const { parseModelJsonWithRepair } = require("./model-json.cjs");
 const { createUpdateManager } = require("./update-manager.cjs");
 const { createProfessionalRuntime } = require("./professional-tools.cjs");
 const { isStandaloneResearchRequest, isDirectConversationRequest } = require("./request-routing.cjs");
+const { createRemoteManager } = require("./remote-server.cjs");
 const nodePty = require("node-pty");
 
 const execFileAsync = promisify(execFile);
@@ -47,9 +48,11 @@ let computerSession = null;
 const cancelledComputerRuns = new Set();
 let updateManager = null;
 let professionalRuntime = null;
+let remoteManager = null;
+const recentAgentEvents = [];
 
 const defaultSettings = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   onboardingCompleted: false,
   profile: { name: "", useCase: "personal", experience: "intermediate" },
   agent: {
@@ -68,7 +71,8 @@ const defaultSettings = {
   privacy: { telemetry: false, diagnostics: false, localHistory: true },
   notifications: { enabled: true, approvals: true, completion: true, onlyWhenUnfocused: true, longRunSeconds: 20 },
   updates: { automatic: true, checkOnStartup: true, channel: "stable" },
-  appearance: { density: "comfortable", motion: true, contextPanel: true, accent: "amber", surface: "warm" },
+  appearance: { density: "comfortable", motion: true, contextPanel: true, accent: "amber", surface: "warm", scale: 1.12 },
+  remote: { appUrl: "https://dama-remote.vercel.app" },
   damaEngine: { baseModelId: null },
   computerUse: { enabled: false },
   projectMemory: { enabled: false },
@@ -104,8 +108,15 @@ function createWindow() {
   if (isDev) mainWindow.loadURL("http://127.0.0.1:5173");
   else mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   mainWindow.webContents.once("did-finish-load", () => {
+    void readSettings().then(applyInterfaceScale);
     if (updateManager) setTimeout(() => void updateManager.start(), 1400);
   });
+}
+
+function applyInterfaceScale(settings) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const scale = Math.min(1.4, Math.max(0.9, Number(settings?.appearance?.scale) || 1.12));
+  mainWindow.webContents.setZoomFactor(scale);
 }
 
 function notificationCopy(language, kind) {
@@ -158,8 +169,8 @@ async function notifyLongRunCompletion(startedAt, detail) {
 }
 
 function emitAgentEvent(runId, stage, type, title, detail = "", state = "done") {
-  if (!runId || !mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send("agent:event", {
+  if (!runId) return;
+  const event = {
     id: randomUUID(),
     runId,
     at: new Date().toISOString(),
@@ -168,7 +179,10 @@ function emitAgentEvent(runId, stage, type, title, detail = "", state = "done") 
     title,
     detail: String(detail || "").slice(0, 12000),
     state,
-  });
+  };
+  recentAgentEvents.push(event);
+  if (recentAgentEvents.length > 240) recentAgentEvents.splice(0, recentAgentEvents.length - 240);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("agent:event", event);
 }
 
 function approvalFingerprint(tool, subject) {
@@ -317,6 +331,7 @@ function mergeSettings(current, patch) {
     notifications: { ...defaultSettings.notifications, ...current?.notifications, ...patch?.notifications },
     updates: { ...defaultSettings.updates, ...current?.updates, ...patch?.updates },
     appearance: { ...defaultSettings.appearance, ...current?.appearance, ...patch?.appearance },
+    remote: { ...defaultSettings.remote, ...current?.remote, ...patch?.remote },
     damaEngine: { ...defaultSettings.damaEngine, ...current?.damaEngine, ...patch?.damaEngine },
     computerUse: { ...defaultSettings.computerUse, ...current?.computerUse, ...patch?.computerUse },
     projectMemory: { ...defaultSettings.projectMemory, ...current?.projectMemory, ...patch?.projectMemory },
@@ -362,10 +377,13 @@ async function readSettings() {
   try {
     const saved = JSON.parse(await fs.readFile(settingsFilePath(), "utf8"));
     if (!saved.schemaVersion) {
-      saved.schemaVersion = 5;
+      saved.schemaVersion = 6;
       saved.privacy = { ...saved.privacy, localHistory: true };
     }
-    if (Number(saved.schemaVersion) < 5) saved.schemaVersion = 5;
+    if (Number(saved.schemaVersion) < 6) {
+      saved.schemaVersion = 6;
+      saved.appearance = { ...saved.appearance, scale: 1.12 };
+    }
     return mergeSettings(saved, {});
   } catch {
     return structuredClone(defaultSettings);
@@ -2468,7 +2486,11 @@ ipcMain.handle("models:remove", async (_event, id) => {
 });
 
 ipcMain.handle("settings:get", async () => publicSettings(await readSettings()));
-ipcMain.handle("settings:update", async (_event, patch) => publicSettings(await updateSettings(patch)));
+ipcMain.handle("settings:update", async (_event, patch) => {
+  const settings = await updateSettings(patch);
+  applyInterfaceScale(settings);
+  return publicSettings(settings);
+});
 ipcMain.handle("settings:resetOnboarding", async () => publicSettings(await updateSettings({ onboardingCompleted: false })));
 ipcMain.handle("updates:state", () => updateManager?.getState() || { supported: false, status: "unsupported", currentVersion: app.getVersion() });
 ipcMain.handle("updates:check", () => updateManager?.check());
@@ -2519,7 +2541,7 @@ ipcMain.handle("agent:steer", (_event, runId, message) => {
   return { accepted: true };
 });
 
-ipcMain.handle("agent:approval:resolve", async (_event, id, decision) => {
+async function resolvePendingToolApproval(id, decision) {
   const pending = pendingToolApprovals.get(String(id || ""));
   if (!pending) return false;
   let normalizedDecision = ["deny", "once", "chat", "project", "global"].includes(decision) ? decision : "deny";
@@ -2546,7 +2568,9 @@ ipcMain.handle("agent:approval:resolve", async (_event, id, decision) => {
   }
   pending.resolve({ approved: true, automatic: false, decision: normalizedDecision });
   return true;
-});
+}
+
+ipcMain.handle("agent:approval:resolve", (_event, id, decision) => resolvePendingToolApproval(id, decision));
 
 ipcMain.handle("agent:plan", async (_event, payload) => {
   const prompt = typeof payload === "string" ? payload : payload.prompt;
@@ -2987,7 +3011,7 @@ ipcMain.handle("changes:reject", async (_event, id) => {
   return { changeSet: await writeChangeSet(record), project: await projectSnapshot(), git: await getGitSummary() };
 });
 
-ipcMain.handle("agent:chat", async (_event, payload) => {
+async function runChatRequest(payload) {
   const level = payload.reasoning || "medium";
   const engineAddon = await damaEngine.promptAddon();
   const chatSettings = await readSettings();
@@ -2996,7 +3020,64 @@ ipcMain.handle("agent:chat", async (_event, payload) => {
   const messages = [{ role: "system", content: system }, ...(payload.messages || []).slice(-40)];
   const response = await chatCompletion(messages, { role: "primary", modelId: payload.modelId || null });
   return { content: response.content || "", model: response._damaModel || null };
+}
+
+ipcMain.handle("agent:chat", (_event, payload) => runChatRequest(payload));
+
+async function remoteSnapshot() {
+  const store = await readWorkspaceStore();
+  const activeKey = projectRoot ? normalizedProjectKey(projectRoot) : null;
+  const projects = store.projects.map((project) => ({
+    id: project.id,
+    name: project.name,
+    lastOpenedAt: project.lastOpenedAt,
+    active: activeKey === normalizedProjectKey(project.path),
+  }));
+  const conversations = store.conversations.slice(0, 80).map((conversation) => ({
+    id: conversation.id,
+    title: conversation.title,
+    kind: conversation.kind,
+    projectId: store.projects.find((project) => normalizedProjectKey(project.path) === normalizedProjectKey(conversation.projectPath))?.id || null,
+    projectName: conversation.projectName,
+    updatedAt: conversation.updatedAt,
+  }));
+  return {
+    protocol: 1,
+    computer: { name: os.hostname(), platform: process.platform, version: app.getVersion() },
+    projects,
+    conversations,
+    activeProjectId: projects.find((project) => project.active)?.id || null,
+    approvals: [...pendingToolApprovals.values()].map(({ request }) => ({ ...request, projectPath: request.projectPath ? path.basename(request.projectPath) : null, status: "pending" })),
+    runs: [...activeAgentRuns.entries()].map(([id, run]) => ({ id, stage: run.stage, queuedMessages: run.queue.length })),
+    events: recentAgentEvents.slice(-120),
+    preview: { running: previewState.running, url: previewState.url },
+    at: new Date().toISOString(),
+  };
+}
+
+async function remoteOpenProject(id) {
+  const store = await readWorkspaceStore();
+  const project = store.projects.find((item) => item.id === String(id || ""));
+  if (!project) throw Object.assign(new Error("Projeto não encontrado."), { statusCode: 404 });
+  await openProjectAt(project.path);
+  return { opened: true, project: { id: project.id, name: project.name } };
+}
+
+function remoteSteer(runId, message) {
+  const state = activeAgentRuns.get(String(runId || ""));
+  const content = String(message || "").trim();
+  if (!state || !content) return { accepted: false };
+  state.queue.push(content.slice(0, 8000));
+  emitAgentEvent(runId, state.stage, "status", "Nova orientação recebida pelo Remote", content, "done");
+  return { accepted: true };
+}
+
+ipcMain.handle("remote:state", () => remoteManager?.getState() || { enabled: false, status: "off" });
+ipcMain.handle("remote:start", async () => {
+  const settings = await readSettings();
+  return remoteManager.start({ remoteAppUrl: settings.remote?.appUrl, tunnel: true });
 });
+ipcMain.handle("remote:stop", () => remoteManager?.stop());
 
 ipcMain.handle("system:openExternal", async (_event, url) => {
   if (!/^https?:\/\//i.test(url)) throw new Error("URL inválida.");
@@ -3012,11 +3093,21 @@ app.whenReady().then(() => {
   app.setAppUserModelId("dev.dama.ide");
   updateManager = createUpdateManager({ app, getWindow: () => mainWindow, readSettings, isDev });
   professionalRuntime = createProfessionalRuntime({ BrowserWindow, getProjectRoot: () => projectRoot, getSettings: readSettings });
+  remoteManager = createRemoteManager({
+    app,
+    getSnapshot: remoteSnapshot,
+    onChat: runChatRequest,
+    onResolveApproval: resolvePendingToolApproval,
+    onSelectProject: remoteOpenProject,
+    onSteer: remoteSteer,
+    onStatus: (status) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("remote:state", status); },
+  });
   createWindow();
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 app.on("before-quit", () => {
+  void remoteManager?.stop();
   professionalRuntime?.stopAll();
   stopComputerSession("app-quit");
   stopPreview();
