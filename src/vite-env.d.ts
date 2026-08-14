@@ -133,13 +133,16 @@ interface Window {
   dama?: {
     apiVersion?: number;
     openProject: () => Promise<OpenProject | null>;
+    createProject: (name: string) => Promise<OpenProject>;
     selectProject: (projectPath: string) => Promise<OpenProject>;
+    unlinkProject: (projectId: string) => Promise<WorkspaceIndex>;
     createProjectFromPrompt: (prompt: string) => Promise<OpenProject>;
     listWorkspace: () => Promise<WorkspaceIndex>;
     saveConversation: (payload: ConversationMeta & { data: Record<string, unknown> }) => Promise<ConversationMeta>;
     loadConversation: (id: string) => Promise<SavedConversation | null>;
     deleteConversation: (id: string) => Promise<boolean>;
     refreshProject: () => Promise<OpenProject>;
+    onProjectChanged: (callback: (project: OpenProject | null) => void) => () => void;
     readFile: (relativePath: string) => Promise<OpenFile>;
     writeFile: (relativePath: string, content: string) => Promise<{ path: string; modifiedAt: number }>;
     createFile: (relativePath: string) => Promise<OpenProject>;

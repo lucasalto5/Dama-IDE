@@ -1,6 +1,7 @@
 const { app, BrowserWindow, clipboard, dialog, ipcMain, shell, safeStorage, screen, globalShortcut, Notification } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const fsNative = require("node:fs");
 const { spawn, execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { createHash, randomUUID } = require("node:crypto");
@@ -37,6 +38,9 @@ const textExtensions = new Set([
 
 let mainWindow;
 let projectRoot = null;
+let projectWatcher = null;
+let projectWatchTimer = null;
+let projectWatchGeneration = 0;
 let previewProcess = null;
 let previewServer = null;
 let previewState = { running: false, url: null, logs: [], command: null };
@@ -299,14 +303,86 @@ async function rememberProject(directory) {
   return project;
 }
 
+function stopProjectWatcher() {
+  projectWatchGeneration += 1;
+  if (projectWatchTimer) clearTimeout(projectWatchTimer);
+  projectWatchTimer = null;
+  if (projectWatcher) {
+    try { projectWatcher.close(); } catch {}
+  }
+  projectWatcher = null;
+}
+
+function ignoredWatchPath(fileName) {
+  const parts = String(fileName || "").replaceAll("\\", "/").split("/").filter(Boolean);
+  return parts.some((part) => ignoredDirectories.has(part))
+    || parts.some((part) => sensitiveFileNames.has(part.toLowerCase()));
+}
+
+function startProjectWatcher(directory) {
+  stopProjectWatcher();
+  const watchedRoot = path.resolve(directory);
+  const generation = projectWatchGeneration;
+  const changed = (_eventType, fileName) => {
+    if (ignoredWatchPath(fileName)) return;
+    if (projectWatchTimer) clearTimeout(projectWatchTimer);
+    projectWatchTimer = setTimeout(async () => {
+      projectWatchTimer = null;
+      if (generation !== projectWatchGeneration || projectRoot !== watchedRoot) return;
+      try {
+        const rootStat = await fs.stat(watchedRoot);
+        if (!rootStat.isDirectory()) throw Object.assign(new Error("A pasta do projeto não existe mais."), { code: "ENOENT" });
+        const snapshot = await projectSnapshot();
+        if (generation === projectWatchGeneration && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:changed", snapshot);
+      } catch (error) {
+        if (error?.code !== "ENOENT") return;
+        stopProjectWatcher();
+        if (projectRoot === watchedRoot) projectRoot = null;
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:changed", null);
+      }
+    }, 180);
+  };
+  try {
+    projectWatcher = fsNative.watch(watchedRoot, { recursive: process.platform === "win32" || process.platform === "darwin" }, changed);
+    projectWatcher.on("error", () => {
+      if (generation === projectWatchGeneration) stopProjectWatcher();
+    });
+  } catch {
+    projectWatcher = null;
+  }
+}
+
+function slugFromProjectName(value) {
+  const words = String(value || "novo-projeto").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) || ["novo", "projeto"];
+  return words.slice(0, 6).join("-").slice(0, 56) || "novo-projeto";
+}
+
+async function createProjectInDocuments(name) {
+  const title = String(name || "Novo projeto").trim().slice(0, 80) || "Novo projeto";
+  const slug = slugFromProjectName(title);
+  const base = path.join(app.getPath("documents"), "Dama Projects");
+  let target = path.join(base, slug);
+  let suffix = 2;
+  while (true) {
+    try { await fs.access(target); target = path.join(base, `${slug}-${suffix++}`); }
+    catch { break; }
+  }
+  await fs.mkdir(target, { recursive: true });
+  await fs.writeFile(path.join(target, "README.md"), `# ${title}\n\nProjeto criado pela Dama.\n`, "utf8");
+  return openProjectAt(target);
+}
+
 async function openProjectAt(directory) {
   const resolved = path.resolve(String(directory || ""));
   const stat = await fs.stat(resolved);
   if (!stat.isDirectory()) throw new Error("O projeto salvo não aponta mais para uma pasta válida.");
   stopPreview();
+  stopProjectWatcher();
   projectRoot = resolved;
   await rememberProject(resolved);
-  return projectSnapshot();
+  const snapshot = await projectSnapshot();
+  startProjectWatcher(resolved);
+  return snapshot;
 }
 
 function normalizeModelRouting(input, profiles = [], activeModelId = null) {
@@ -407,7 +483,12 @@ async function updateSettings(patch) {
 
 async function listDirectory(directory, depth = 0, budget = { count: 0 }) {
   if (depth > 5 || budget.count > 1200) return [];
-  const entries = await fs.readdir(directory, { withFileTypes: true });
+  let entries;
+  try { entries = await fs.readdir(directory, { withFileTypes: true }); }
+  catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
   const visible = entries
     .filter((entry) => !ignoredDirectories.has(entry.name))
     .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
@@ -2249,31 +2330,38 @@ ipcMain.handle("project:open", async () => {
 });
 
 ipcMain.handle("project:createFromPrompt", async (_event, prompt) => {
-  const words = String(prompt || "novo-projeto").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[a-z0-9]+/g) || ["novo", "projeto"];
-  const slug = words.slice(0, 5).join("-").slice(0, 56) || "novo-projeto";
-  const base = path.join(app.getPath("documents"), "Dama Projects");
-  let target = path.join(base, slug);
-  let suffix = 2;
-  while (true) {
-    try { await fs.access(target); target = path.join(base, `${slug}-${suffix++}`); }
-    catch { break; }
-  }
-  await fs.mkdir(target, { recursive: true });
-  await fs.writeFile(path.join(target, "README.md"), `# ${slug.replaceAll("-", " ")}\n\nProjeto criado pela Dama.\n`, "utf8");
-  projectRoot = target;
-  await rememberProject(target);
-  return projectSnapshot();
+  return createProjectInDocuments(String(prompt || "Novo projeto").slice(0, 80));
 });
 
-ipcMain.handle("workspace:list", async () => {
+ipcMain.handle("project:create", (_event, name) => createProjectInDocuments(name));
+
+async function workspaceIndexSnapshot() {
   const store = await readWorkspaceStore();
   return {
     projects: store.projects,
     conversations: store.conversations.map(({ data: _data, ...conversation }) => conversation),
     activeProjectPath: projectRoot,
   };
-});
+}
+
+ipcMain.handle("workspace:list", workspaceIndexSnapshot);
 ipcMain.handle("workspace:selectProject", (_event, projectPath) => openProjectAt(projectPath));
+ipcMain.handle("workspace:unlinkProject", async (_event, projectId) => {
+  const store = await readWorkspaceStore();
+  const project = store.projects.find((item) => item.id === String(projectId || ""));
+  if (!project) return workspaceIndexSnapshot();
+  const isActive = projectRoot && path.resolve(projectRoot).toLowerCase() === path.resolve(project.path).toLowerCase();
+  if (isActive && activeAgentRuns.size) throw new Error("Aguarde a execução atual terminar antes de desvincular este projeto.");
+  store.projects = store.projects.filter((item) => item.id !== project.id);
+  await writeWorkspaceStore(store);
+  if (isActive) {
+    stopPreview();
+    stopProjectWatcher();
+    projectRoot = null;
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("project:changed", null);
+  }
+  return workspaceIndexSnapshot();
+});
 async function saveConversationRecord(payload) {
   const serialized = JSON.stringify(payload?.data || {});
   if (serialized.length > 5 * 1024 * 1024) throw new Error("Esta conversa ficou grande demais para o histórico local.");
@@ -3246,6 +3334,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("before-quit", () => {
+  stopProjectWatcher();
   void remoteManager?.stop();
   professionalRuntime?.stopAll();
   stopComputerSession("app-quit");

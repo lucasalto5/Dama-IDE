@@ -1,15 +1,22 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("dama", {
-  apiVersion: 12,
+  apiVersion: 13,
   openProject: () => ipcRenderer.invoke("project:open"),
+  createProject: (name) => ipcRenderer.invoke("project:create", name),
   selectProject: (projectPath) => ipcRenderer.invoke("workspace:selectProject", projectPath),
+  unlinkProject: (projectId) => ipcRenderer.invoke("workspace:unlinkProject", projectId),
   createProjectFromPrompt: (prompt) => ipcRenderer.invoke("project:createFromPrompt", prompt),
   listWorkspace: () => ipcRenderer.invoke("workspace:list"),
   saveConversation: (payload) => ipcRenderer.invoke("workspace:saveConversation", payload),
   loadConversation: (id) => ipcRenderer.invoke("workspace:loadConversation", id),
   deleteConversation: (id) => ipcRenderer.invoke("workspace:deleteConversation", id),
   refreshProject: () => ipcRenderer.invoke("project:refresh"),
+  onProjectChanged: (callback) => {
+    const listener = (_event, project) => callback(project);
+    ipcRenderer.on("project:changed", listener);
+    return () => ipcRenderer.removeListener("project:changed", listener);
+  },
   readFile: (relativePath) => ipcRenderer.invoke("project:read", relativePath),
   writeFile: (relativePath, content) => ipcRenderer.invoke("project:write", relativePath, content),
   createFile: (relativePath) => ipcRenderer.invoke("project:createFile", relativePath),

@@ -26,6 +26,7 @@ import {
   File,
   FileCode2,
   Folder,
+  FolderPlus,
   FolderOpen,
   GitBranch,
   Globe2,
@@ -57,6 +58,7 @@ import {
   TerminalSquare,
   Trash2,
   Undo2,
+  Unlink,
   UserRound,
   X,
 } from "lucide-react";
@@ -111,7 +113,9 @@ const viewItems: Array<{ id: View; label: string; icon: typeof Sparkles }> = [
 function hasWorkspaceApi() {
   return Boolean(window.dama
     && typeof window.dama.listWorkspace === "function"
+    && typeof window.dama.createProject === "function"
     && typeof window.dama.selectProject === "function"
+    && typeof window.dama.unlinkProject === "function"
     && typeof window.dama.saveConversation === "function"
     && typeof window.dama.loadConversation === "function"
     && typeof window.dama.deleteConversation === "function");
@@ -375,9 +379,9 @@ function Choice({ selected, icon, title, detail, badge, onClick }: { selected: b
   return <button className={`choice-card ${selected ? "selected" : ""}`} onClick={onClick}>{icon && <span className="choice-icon">{icon}</span>}<span><strong>{title}</strong><small>{detail}</small></span>{badge && <em>{badge}</em>}<span className="choice-check">{selected && <Check size={11} />}</span></button>;
 }
 
-type SettingsSection = "profile" | "models" | "dama" | "remote" | "agent" | "mcp" | "plugins" | "appearance" | "notifications" | "updates" | "privacy";
+type SettingsSection = "profile" | "projects" | "models" | "dama" | "remote" | "agent" | "mcp" | "plugins" | "appearance" | "notifications" | "updates" | "privacy";
 
-function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave, onConfigureModel, onResetOnboarding }: { initial: DamaSettings; modelsState: ModelsState; onModelsChange: (state: ModelsState) => void; onClose: () => void; onSave: (settings: DamaSettings) => Promise<void>; onConfigureModel: () => void; onResetOnboarding: () => Promise<void> }) {
+function SettingsCenter({ initial, modelsState, workspaceIndex, onModelsChange, onUnlinkProject, onClose, onSave, onConfigureModel, onResetOnboarding }: { initial: DamaSettings; modelsState: ModelsState; workspaceIndex: WorkspaceIndex; onModelsChange: (state: ModelsState) => void; onUnlinkProject: (id: string) => Promise<void>; onClose: () => void; onSave: (settings: DamaSettings) => Promise<void>; onConfigureModel: () => void; onResetOnboarding: () => Promise<void> }) {
   const [section, setSection] = useState<SettingsSection>("profile");
   const [draft, setDraft] = useState<DamaSettings>(initial);
   const [saving, setSaving] = useState(false);
@@ -392,9 +396,10 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   const [remoteState, setRemoteState] = useState<RemoteState | null>(null);
   const [remoteBusy, setRemoteBusy] = useState(false);
+  const [unlinkingProjectId, setUnlinkingProjectId] = useState<string | null>(null);
   const [mcpDraft, setMcpDraft] = useState({ name: "", transport: "stdio" as "stdio" | "http", value: "" });
   const sections: Array<{ id: SettingsSection; label: string; icon: typeof UserRound }> = [
-    { id: "profile", label: "Perfil", icon: UserRound }, { id: "models", label: "Modelos", icon: Bot },
+    { id: "profile", label: "Perfil", icon: UserRound }, { id: "projects", label: "Projetos", icon: Folder }, { id: "models", label: "Modelos", icon: Bot },
     { id: "dama", label: "Dama AI", icon: Sparkles }, { id: "remote", label: "Dama Remote", icon: Smartphone },
     { id: "agent", label: "Agente", icon: SlidersHorizontal }, { id: "mcp", label: "MCP", icon: Plug },
     { id: "plugins", label: "Plugins", icon: Puzzle }, { id: "appearance", label: "Aparência", icon: Palette },
@@ -500,6 +505,7 @@ function SettingsCenter({ initial, modelsState, onModelsChange, onClose, onSave,
       {section === "appearance" && <SettingsGroup title="Leitura" description="Aumenta toda a interface mantendo as proporções do aplicativo."><Field label="Tamanho da interface"><select value={draft.appearance.scale || 1.12} onChange={(event) => patch("appearance", { ...draft.appearance, scale: Number(event.target.value) })}><option value={1}>100% · compacto</option><option value={1.12}>112% · recomendado</option><option value={1.25}>125% · grande</option><option value={1.4}>140% · muito grande</option></select></Field></SettingsGroup>}
       {section === "models" && modelsState.models.length > 0 && <SettingsGroup title="Diagnóstico de conexão" description="Repete o teste usando o endpoint e o token protegido já salvos."><div className="model-list test-list">{modelsState.models.map((model) => <div key={model.id}><span className="model-live" /><div><strong>{model.name}</strong><em className={modelTestResults[model.id]?.startsWith("Conexão") ? "test-ok" : ""}>{modelTestResults[model.id] || "Pronto para testar"}</em></div><button className="quiet-button" disabled={testingModelId === model.id} onClick={() => testExistingModel(model.id)}>{testingModelId === model.id ? <LoaderCircle className="spin" size={12} /> : <Activity size={12} />} Testar</button></div>)}</div></SettingsGroup>}
       {section === "profile" && <><SettingsGroup title="Seu perfil" description="Personaliza como a Dama conversa com você."><Field label="Como devemos chamar você?"><input value={draft.profile.name} onChange={(event) => patch("profile", { ...draft.profile, name: event.target.value })} /></Field><Field label="Finalidade principal"><select value={draft.profile.useCase} onChange={(event) => patch("profile", { ...draft.profile, useCase: event.target.value })}><option value="work">Trabalho</option><option value="product">Criar produtos</option><option value="learning">Aprender</option><option value="personal">Projetos pessoais</option></select></Field><Field label="Nível de detalhe"><select value={draft.profile.experience} onChange={(event) => patch("profile", { ...draft.profile, experience: event.target.value })}><option value="beginner">Explicativo</option><option value="intermediate">Equilibrado</option><option value="expert">Objetivo e técnico</option></select></Field></SettingsGroup><SettingsGroup title="Primeira execução" description="Revise novamente as perguntas de personalização."><div className="reset-onboarding"><div><strong>Refazer onboarding</strong><small>Suas integrações e projetos não serão removidos.</small></div><button className="secondary-button" onClick={onResetOnboarding}>Começar novamente</button></div></SettingsGroup></>}
+      {section === "projects" && <><SettingsGroup title="Projetos vinculados" description="Remove um projeto da lista da Dama sem apagar sua pasta, arquivos ou conversas.">{workspaceIndex.projects.length ? <div className="settings-project-list">{workspaceIndex.projects.map((savedProject) => <div key={savedProject.id}><Folder size={15} /><span><strong>{savedProject.name}</strong><small>{savedProject.path}</small></span><button className="quiet-button" disabled={unlinkingProjectId === savedProject.id} onClick={async () => { setUnlinkingProjectId(savedProject.id); try { await onUnlinkProject(savedProject.id); } finally { setUnlinkingProjectId(null); } }}>{unlinkingProjectId === savedProject.id ? <LoaderCircle className="spin" size={12} /> : <Unlink size={12} />} Desvincular</button></div>)}</div> : <SettingsEmpty icon={<Folder size={20} />} text="Nenhum projeto vinculado à Dama." />}</SettingsGroup><SettingsGroup title="Seus arquivos continuam intactos" description="Desvincular afeta somente a lista local da Dama."><div className="settings-inline-note"><ShieldCheck size={14} /><span>A pasta permanece em seu computador. Se você abrir essa pasta novamente, o projeto e as conversas relacionadas voltam a aparecer.</span></div></SettingsGroup></>}
       {section === "models" && <>
         <SettingsGroup title="Modelos conectados" description="Somente modelos que passaram no teste aparecem aqui. Tokens persistidos usam a proteção do sistema operacional.">
           <button className="add-integration" onClick={onConfigureModel}><Plus size={14} /> Testar e adicionar modelo</button>
@@ -761,10 +767,10 @@ export default function App() {
             if (recentConversation) await restoreConversation(recentConversation.id, false);
             else startNewConversation("agent");
           }
-        } else if (window.dama.apiVersion !== 12) {
+        } else if (window.dama.apiVersion !== 13) {
           setError("A interface foi atualizada, mas o processo desktop ainda é da versão anterior. Feche a Dama completamente e abra novamente para ativar projetos e conversas.");
         }
-        if (window.dama.apiVersion !== 12) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para ativar a instalação posterior do Dama AI.");
+        if (window.dama.apiVersion !== 13) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para ativar a sincronização e o gerenciamento de projetos.");
       }
     })().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => {
       window.clearTimeout(splashTimer);
@@ -780,6 +786,24 @@ export default function App() {
     const disposeUpdate = window.dama.onUpdateState((state) => { if (active) setUpdateState(state); });
     const disposeNotification = window.dama.onNotificationOpen(() => { if (active) setView("agent"); });
     return () => { active = false; disposeUpdate(); disposeNotification(); };
+  }, []);
+
+  useEffect(() => {
+    if (!window.dama?.onProjectChanged) return;
+    return window.dama.onProjectChanged((snapshot) => {
+      if (!snapshot) {
+        setProject(null);
+        setOpenFile(null);
+        setOpenFileLine(null);
+        setGit({ repository: false, branch: null, changes: [] });
+        void refreshWorkspaceIndex();
+        return;
+      }
+      const availableFiles = new Set(flattenFiles(snapshot.files).map((file) => file.toLowerCase()));
+      setProject(snapshot);
+      setOpenFile((current) => current && !availableFiles.has(current.path.toLowerCase()) ? null : current);
+      void window.dama?.gitSummary().then(setGit).catch(() => {});
+    });
   }, []);
 
   function conversationTitle() {
@@ -1034,6 +1058,45 @@ export default function App() {
       await refreshWorkspaceIndex();
       addActivity("Projeto aberto", selected.path, "done");
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+
+  async function createBlankProject(name: string) {
+    try {
+      setError(null);
+      if (!window.dama) throw new Error("A criação de projetos está disponível no aplicativo desktop.");
+      await saveCurrentConversation();
+      const created = await window.dama.createProject(name);
+      setProject(created);
+      setOpenFile(null);
+      setOpenFileLine(null);
+      setGit(await window.dama.gitSummary());
+      startNewConversation("agent");
+      await refreshWorkspaceIndex();
+      addActivity("Projeto criado", created.path, "done");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+
+  async function unlinkProject(projectId: string) {
+    if (!window.dama) return;
+    const savedProject = workspaceIndex.projects.find((item) => item.id === projectId);
+    const wasActive = Boolean(savedProject && project?.path.toLowerCase() === savedProject.path.toLowerCase());
+    try {
+      setError(null);
+      if (wasActive) await saveCurrentConversation();
+      const nextIndex = await window.dama.unlinkProject(projectId);
+      setWorkspaceIndex(nextIndex);
+      if (wasActive) {
+        setProject(null);
+        setOpenFile(null);
+        setOpenFileLine(null);
+        setGit({ repository: false, branch: null, changes: [] });
+        startNewConversation("agent");
+      }
+      if (savedProject) addActivity("Projeto desvinculado", `${savedProject.name} · os arquivos foram mantidos`, "done");
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+    }
   }
 
   async function selectFile(path: string, line?: number) {
@@ -1452,7 +1515,7 @@ export default function App() {
         </div>
       </header>
 
-      {workspaceManagerOpen && <WorkspaceManager index={workspaceIndex} activeProjectPath={project?.path || null} activeConversationId={activeConversationId} onClose={() => setWorkspaceManagerOpen(false)} onOpenFolder={openProject} onNewConversation={createConversation} onSelectProject={switchProject} onSelectConversation={restoreConversation} onDeleteConversation={removeConversation} />}
+      {workspaceManagerOpen && <WorkspaceManager index={workspaceIndex} activeProjectPath={project?.path || null} activeConversationId={activeConversationId} onClose={() => setWorkspaceManagerOpen(false)} onOpenFolder={openProject} onCreateProject={createBlankProject} onNewConversation={createConversation} onSelectProject={switchProject} onSelectConversation={restoreConversation} onDeleteConversation={removeConversation} />}
 
       <aside className="rail">
         <nav>{viewItems.map((item) => { const Icon = item.icon; return <button key={item.id} data-label={item.label} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}><Icon size={18} /></button>; })}</nav>
@@ -1565,7 +1628,7 @@ export default function App() {
       </div>}
 
       {connectorDialog && <ConnectorDialog onClose={() => setConnectorDialog(false)} onSaved={(state) => { setModelsState(state); setSelectedModelId(state.activeModelId); const selected = state.models.find((model) => model.id === state.activeModelId); if (selected) setConnector({ configured: true, model: selected.model, url: selected.url, kind: selected.kind }); }} />}
-      {settingsOpen && <SettingsCenter initial={settings} modelsState={modelsState} onModelsChange={(state) => { setModelsState(state); setSelectedModelId(state.activeModelId); }} onClose={() => setSettingsOpen(false)} onSave={saveSettings} onConfigureModel={() => { setSettingsOpen(false); setConnectorDialog(true); }} onResetOnboarding={resetOnboarding} />}
+      {settingsOpen && <SettingsCenter initial={settings} modelsState={modelsState} workspaceIndex={workspaceIndex} onModelsChange={(state) => { setModelsState(state); setSelectedModelId(state.activeModelId); }} onUnlinkProject={unlinkProject} onClose={() => setSettingsOpen(false)} onSave={saveSettings} onConfigureModel={() => { setSettingsOpen(false); setConnectorDialog(true); }} onResetOnboarding={resetOnboarding} />}
       {pendingCommand && <ApprovalDialog command={pendingCommand} onCancel={() => { pendingCommandOrigin.current = null; setPendingCommand(null); }} onApprove={() => executeCommand(pendingCommand)} />}
     </div>
   );
@@ -1717,23 +1780,35 @@ function MarkdownContent({ content, projectFiles, onOpenFile, className = "" }: 
   return <div className={`markdown-body ${className}`.trim()}>{renderMarkdownTokens(tokens, projectFiles, onOpenFile)}</div>;
 }
 
-function WorkspaceManager({ index, activeProjectPath, activeConversationId, onClose, onOpenFolder, onNewConversation, onSelectProject, onSelectConversation, onDeleteConversation }: {
+function WorkspaceManager({ index, activeProjectPath, activeConversationId, onClose, onOpenFolder, onCreateProject, onNewConversation, onSelectProject, onSelectConversation, onDeleteConversation }: {
   index: WorkspaceIndex;
   activeProjectPath: string | null;
   activeConversationId: string | null;
   onClose: () => void;
   onOpenFolder: () => void;
+  onCreateProject: (name: string) => Promise<void>;
   onNewConversation: (kind: ConversationKind) => Promise<void>;
   onSelectProject: (path: string) => Promise<void>;
   onSelectConversation: (id: string) => Promise<void>;
   onDeleteConversation: (id: string) => Promise<void>;
 }) {
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [projectCreating, setProjectCreating] = useState(false);
   const looseChats = index.conversations.filter((item) => item.projectPath === "__projectless__");
+  async function submitProject(event: FormEvent) {
+    event.preventDefault();
+    if (!projectName.trim() || projectCreating) return;
+    setProjectCreating(true);
+    try { await onCreateProject(projectName.trim()); }
+    finally { setProjectCreating(false); }
+  }
   return <>
     <button className="workspace-manager-backdrop" aria-label="Fechar projetos e conversas" onClick={onClose} />
     <section className="workspace-manager" aria-label="Projetos e conversas">
       <header><div><strong>Projetos e conversas</strong><small>Histórico salvo somente neste computador</small></div><button className="icon-button" onClick={onClose}><X size={14} /></button></header>
-      <div className="workspace-manager-actions"><button onClick={() => void onNewConversation("agent")}><Sparkles size={14} /> Novo agente</button><button onClick={() => void onNewConversation("chat")}><MessageSquareText size={14} /> Novo chat</button><button onClick={onOpenFolder}><FolderOpen size={14} /> Abrir pasta</button></div>
+      <div className="workspace-manager-actions"><button onClick={() => void onNewConversation("agent")}><Sparkles size={14} /> Novo agente</button><button onClick={() => void onNewConversation("chat")}><MessageSquareText size={14} /> Novo chat</button><button onClick={() => setCreatingProject((value) => !value)}><FolderPlus size={14} /> Novo projeto</button><button onClick={onOpenFolder}><FolderOpen size={14} /> Abrir pasta</button></div>
+      {creatingProject && <form className="workspace-create-project" onSubmit={submitProject}><div><strong>Criar projeto</strong><small>A pasta será criada em Documentos\Dama Projects.</small></div><input autoFocus value={projectName} maxLength={80} onChange={(event) => setProjectName(event.target.value)} placeholder="Nome do projeto" /><button className="primary-button" disabled={!projectName.trim() || projectCreating}>{projectCreating ? <LoaderCircle className="spin" size={12} /> : <Plus size={12} />} Criar</button></form>}
       <div className="workspace-manager-list">
         {looseChats.length > 0 && <WorkspaceConversationGroup title="Sem projeto" conversations={looseChats} activeConversationId={activeConversationId} onSelectConversation={onSelectConversation} onDeleteConversation={onDeleteConversation} />}
         {index.projects.map((savedProject) => {

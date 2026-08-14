@@ -67,9 +67,16 @@ button:disabled { cursor: default; opacity: .45; }
 .workspace-manager > header > div { display: flex; flex-direction: column; gap: 3px; }
 .workspace-manager > header strong { font-size: 12px; font-weight: 600; }
 .workspace-manager > header small { color: var(--faint); font-size: 8px; }
-.workspace-manager-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px; padding: 10px; border-bottom: 1px solid var(--line); }
+.workspace-manager-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; padding: 10px; border-bottom: 1px solid var(--line); }
 .workspace-manager-actions button { min-width: 0; border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 6px; padding: 9px 7px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 9px; cursor: pointer; }
 .workspace-manager-actions button:hover { color: var(--text); background: var(--panel-2); }
+.workspace-create-project { display: grid; grid-template-columns: minmax(0,1fr) 150px auto; align-items: center; gap: 9px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.01); }
+.workspace-create-project > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.workspace-create-project strong { font-size: 10px; font-weight: 500; }
+.workspace-create-project small { color: var(--faint); font-size: 8px; }
+.workspace-create-project input { min-width: 0; height: 30px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); color: var(--text); padding: 0 9px; font: inherit; font-size: 9px; outline: none; }
+.workspace-create-project input:focus { border-color: color-mix(in srgb,var(--accent) 58%,var(--line-strong)); }
+.workspace-create-project .primary-button { min-height: 30px; padding: 0 11px; font-size: 9px; }
 .workspace-manager-list { min-height: 112px; overflow-y: auto; padding: 8px; }
 .workspace-project { padding: 4px; border-radius: 7px; }
 .workspace-project.active { background: rgba(255,255,255,.018); }
@@ -800,6 +807,15 @@ button:disabled { cursor: default; opacity: .45; }
 .integration-list strong { font-size: 10px; font-weight: 500; }
 .integration-list small { color: var(--faint); font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .integration-list em { color: var(--accent); font-size: 8px; font-style: normal; }
+.settings-project-list > div { min-height: 58px; display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-bottom: 1px solid var(--line); }
+.settings-project-list > div:last-child { border-bottom: 0; }
+.settings-project-list > div > svg { flex: 0 0 auto; color: var(--accent); }
+.settings-project-list > div > span { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.settings-project-list strong { font-size: 10px; font-weight: 500; }
+.settings-project-list small { color: var(--faint); font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-project-list .quiet-button { flex: 0 0 auto; }
+.settings-inline-note { min-height: 52px; display: flex; align-items: center; gap: 9px; padding: 10px 12px; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.settings-inline-note svg { flex: 0 0 auto; color: var(--success); }
 .add-integration { margin: 11px; border: 1px dashed var(--line-strong); background: transparent; color: var(--muted); border-radius: 6px; padding: 8px 10px; display: flex; align-items: center; gap: 6px; font-size: 8px; cursor: pointer; }
 .add-integration:hover { color: var(--text); border-color: rgba(216,162,108,.3); }
 .settings-empty { min-height: 90px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: var(--faint); font-size: 8px; }
