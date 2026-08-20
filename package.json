@@ -2,7 +2,7 @@
   "name": "dama-ide",
   "private": true,
   "type": "module",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "author": "Dama",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -82,7 +82,7 @@
       }
     ],
     "releaseInfo": {
-      "releaseName": "Dama 0.12.3 — projetos sincronizados e sessões recuperáveis",
+      "releaseName": "Dama 0.12.4 — planos flexíveis",
       "releaseNotesFile": "build/release-notes.md"
     },
     "files": [
