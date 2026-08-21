@@ -410,12 +410,29 @@ button:disabled { cursor: default; opacity: .45; }
 .git-operations { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(180px, 1.3fr) auto; gap: 8px; padding: 10px; margin: -14px 0 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .git-operations select, .git-operations input { min-width: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); padding: 7px 9px; outline: 0; font-size: 10px; }
 .git-operation-output { max-height: 180px; overflow: auto; margin: -12px 0 22px; padding: 10px; border-left: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 4%, transparent); color: var(--muted); font: 9px/1.55 Consolas, monospace; white-space: pre-wrap; }
+.git-advanced-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 24px; }
+.git-tool-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.git-tool-card .section-heading { margin-bottom: 10px; }
+.git-tool-card form, .checkpoint-create { display: flex; align-items: center; gap: 6px; }
+.git-tool-card input { min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); padding: 7px 8px; outline: 0; font-size: 10px; }
+.git-tool-card form > button, .checkpoint-create > button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); color: var(--text); padding: 7px 9px; font-size: 10px; cursor: pointer; }
+.git-tool-card button:disabled { opacity: .45; cursor: default; }
+.git-tool-card pre { max-height: 190px; overflow: auto; margin: 10px 0 0; padding: 9px; background: var(--canvas); color: var(--muted); font: 10px/1.5 Consolas, monospace; white-space: pre-wrap; }
+.checkpoint-list { display: grid; gap: 4px; margin-top: 9px; max-height: 190px; overflow: auto; }
+.checkpoint-list > div { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 7px 0; border-top: 1px solid var(--line); }
+.checkpoint-list > div > span { display: grid; gap: 2px; min-width: 0; margin-right: auto; }
+.checkpoint-list strong, .checkpoint-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.checkpoint-list strong { color: var(--text); font-size: 10px; font-weight: 500; }
+.checkpoint-list small, .checkpoint-list > p { color: var(--muted); font-size: 9px; }
+.checkpoint-list button { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+.checkpoint-list button:hover { background: var(--raised); color: var(--text); }
 .section-heading { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 9px; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
 .git-file-row { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; display: flex; gap: 8px; align-items: center; text-align: left; padding: 10px 4px; color: var(--muted); font-size: 9px; cursor: pointer; }
 .git-file-row:hover { color: var(--text); }
 .git-file-row svg { margin-left: auto; }
 .clean-state { padding: 50px; color: var(--success); text-align: center; }
 .clean-state p { color: var(--muted); font-size: 9px; }
+@media (max-width: 820px) { .git-advanced-grid { grid-template-columns: 1fr; } }
 
 .terminal-view { height: 100%; display: grid; grid-template-rows: 39px minmax(0,1fr) 40px; background: var(--bg); font-family: Consolas, "Courier New", monospace; }
 .terminal-view header small { color: var(--faint); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -83,6 +83,41 @@ type AgentFeedEntry =
   | { kind: "approval"; id: string; at: string; item: ToolApprovalRequest }
   | { kind: "activity"; id: string; at: string; items: AgentProgressEvent[] };
 
+const conversationLimits = { agentMessages: 120, agentEvents: 320, agentPlans: 24, approvals: 48, chatMessages: 120, terminalEntries: 40 } as const;
+
+function compactAgentEvents(events: AgentProgressEvent[]) {
+  if (events.length <= conversationLimits.agentEvents) return events;
+  const previousSummary = events.find((item) => item.id === "dama-history-compacted");
+  const previousCount = Number(previousSummary?.detail.match(/\d+/)?.[0] || 0);
+  const source = events.filter((item) => item.id !== "dama-history-compacted");
+  const keep = source.slice(-(conversationLimits.agentEvents - 1));
+  const compacted = previousCount + Math.max(0, source.length - keep.length);
+  return [{
+    id: "dama-history-compacted",
+    runId: keep[0]?.runId || "history",
+    at: keep[0]?.at || new Date().toISOString(),
+    stage: "execution" as const,
+    type: "status" as const,
+    title: "Histórico anterior resumido",
+    detail: `${compacted} eventos técnicos antigos foram compactados para manter esta conversa leve. Mensagens e alterações importantes continuam salvas.`,
+    state: "done" as const,
+  }, ...keep];
+}
+
+function compactConversationData(data: {
+  agentMessages: AgentThreadMessage[]; agentEvents: AgentProgressEvent[]; agentPlans: AgentPlanRecord[];
+  toolApprovals: ToolApprovalRequest[]; agentResult: AgentResult | null; chatMessages: ChatMessage[];
+}) {
+  return {
+    ...data,
+    agentMessages: data.agentMessages.slice(-conversationLimits.agentMessages),
+    agentEvents: compactAgentEvents(data.agentEvents),
+    agentPlans: data.agentPlans.slice(-conversationLimits.agentPlans),
+    toolApprovals: data.toolApprovals.slice(-conversationLimits.approvals),
+    chatMessages: data.chatMessages.slice(-conversationLimits.chatMessages),
+  };
+}
+
 const browserSettings: DamaSettings = {
   onboardingCompleted: false,
   profile: { name: "", useCase: "personal", experience: "intermediate" },
@@ -500,7 +535,7 @@ function SettingsCenter({ initial, modelsState, workspaceIndex, onModelsChange, 
   }
 
   return <div className="settings-backdrop"><section className="settings-center">
-    <aside><div className="settings-brand"><DinoLogo /><strong>Configurações</strong></div><nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon size={14} />{item.label}</button>; })}</nav><div className="settings-version">Dama 0.12.4 · preview</div></aside>
+    <aside><div className="settings-brand"><DinoLogo /><strong>Configurações</strong></div><nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon size={14} />{item.label}</button>; })}</nav><div className="settings-version">Dama 0.13.0 · preview</div></aside>
     <main><header><div><span className="eyebrow">Preferências</span><h2>{sections.find((item) => item.id === section)?.label}</h2></div><button className="icon-button" onClick={onClose}><X size={17} /></button></header><div className="settings-scroll" key={section}>
       {section === "remote" && <RemoteSettings state={remoteState} busy={remoteBusy} appUrl={draft.remote.appUrl} onAppUrlChange={(appUrl) => patch("remote", { appUrl })} onAction={runRemoteAction} />}
       {section === "appearance" && <SettingsGroup title="Leitura" description="Aumenta toda a interface mantendo as proporções do aplicativo."><Field label="Tamanho da interface"><select value={draft.appearance.scale || 1.12} onChange={(event) => patch("appearance", { ...draft.appearance, scale: Number(event.target.value) })}><option value={1}>100% · compacto</option><option value={1.12}>112% · recomendado</option><option value={1.25}>125% · grande</option><option value={1.4}>140% · muito grande</option></select></Field></SettingsGroup>}
@@ -547,7 +582,7 @@ function SettingsCenter({ initial, modelsState, workspaceIndex, onModelsChange, 
       {section === "plugins" && <SettingsGroup title="Plugins locais" description="Cadastre bundles locais. O runtime de extensões ainda não executa plugins nesta versão."><button className="add-integration" onClick={addPlugin}><Plus size={14} /> Adicionar pasta de plugin</button>{draft.plugins.length ? <div className="integration-list">{draft.plugins.map((plugin) => <div key={plugin.id}><span className="integration-icon"><Puzzle size={14} /></span><div><strong>{plugin.name}</strong><small>{plugin.description || plugin.path}</small><em>{plugin.version} · carregamento ainda não iniciado</em></div><Toggle compact label="" checked={plugin.enabled} onChange={(enabled) => patch("plugins", draft.plugins.map((item) => item.id === plugin.id ? { ...item, enabled } : item))} /><button className="icon-button" onClick={() => patch("plugins", draft.plugins.filter((item) => item.id !== plugin.id))}><Trash2 size={13} /></button></div>)}</div> : <SettingsEmpty icon={<Puzzle size={20} />} text="Nenhum plugin local adicionado." />}</SettingsGroup>}
       {section === "appearance" && <SettingsGroup title="Interface" description="Estas opções são aplicadas ao salvar."><Field label="Idioma da interface"><select value={draft.agent.language} onChange={(event) => patch("agent", { ...draft.agent, language: event.target.value })}><option value="pt-BR">Português (Brasil)</option><option value="en-US">English</option><option value="es-ES">Español</option></select></Field><Field label="Densidade"><select value={draft.appearance.density} onChange={(event) => patch("appearance", { ...draft.appearance, density: event.target.value })}><option value="compact">Compacta</option><option value="comfortable">Confortável</option><option value="spacious">Espaçosa</option></select></Field><Field label="Cor de destaque"><select value={draft.appearance.accent} onChange={(event) => patch("appearance", { ...draft.appearance, accent: event.target.value })}><option value="amber">Âmbar</option><option value="green">Verde</option><option value="blue">Azul</option><option value="violet">Violeta</option><option value="neutral">Neutra</option></select></Field><Field label="Superfície"><select value={draft.appearance.surface} onChange={(event) => patch("appearance", { ...draft.appearance, surface: event.target.value })}><option value="warm">Grafite quente</option><option value="black">Preto profundo</option><option value="slate">Azul ardósia</option></select></Field><Toggle label="Animações da interface" detail="Transições mais suaves entre telas e estados" checked={draft.appearance.motion} onChange={(value) => patch("appearance", { ...draft.appearance, motion: value })} /><Toggle label="Painel de contexto aberto" detail="Mostra atividade e estado do projeto à direita" checked={draft.appearance.contextPanel} onChange={(value) => patch("appearance", { ...draft.appearance, contextPanel: value })} /></SettingsGroup>}
       {section === "notifications" && <><SettingsGroup title="Notificações" description="A Dama usa as notificações nativas do Windows para avisos importantes."><Toggle label="Ativar notificações" detail="Permite que a Dama envie avisos do sistema" checked={draft.notifications.enabled} onChange={(value) => patch("notifications", { ...draft.notifications, enabled: value })} /><Toggle label="Autorizações pendentes" detail="Avisa quando uma ferramenta precisa da sua decisão" checked={draft.notifications.approvals} onChange={(value) => patch("notifications", { ...draft.notifications, approvals: value })} /><Toggle label="Execuções longas concluídas" detail="Avisa quando o agente termina um trabalho demorado" checked={draft.notifications.completion} onChange={(value) => patch("notifications", { ...draft.notifications, completion: value })} /><Toggle label="Somente quando a Dama não estiver em foco" detail="Evita avisos duplicados enquanto você já está olhando a execução" checked={draft.notifications.onlyWhenUnfocused} onChange={(value) => patch("notifications", { ...draft.notifications, onlyWhenUnfocused: value })} /><RangeField label="Tempo mínimo para considerar uma execução longa" value={draft.notifications.longRunSeconds} min={5} max={120} step={5} onChange={(value) => patch("notifications", { ...draft.notifications, longRunSeconds: value })} /></SettingsGroup></>}
-      {section === "updates" && <><SettingsGroup title="Atualizações" description="Novas versões são verificadas em um canal assinado e instaladas pelo atualizador da Dama."><Toggle label="Atualização automática" detail="Baixa e instala a versão mais recente ao abrir a Dama" checked={draft.updates.automatic} onChange={(value) => patch("updates", { ...draft.updates, automatic: value })} /><Toggle label="Procurar ao iniciar" detail="Consulta o canal estável sempre que a Dama for aberta" checked={draft.updates.checkOnStartup} onChange={(value) => patch("updates", { ...draft.updates, checkOnStartup: value })} /><div className="update-settings-status"><div><strong>Versão instalada</strong><span>{updateState?.currentVersion || "0.12.4"}</span></div><div><strong>Estado</strong><span>{updateState?.status === "checking" ? "Procurando…" : updateState?.status === "available" ? `Versão ${updateState.version} disponível` : updateState?.status === "downloading" ? `Baixando · ${Math.round(updateState.percent)}%` : updateState?.status === "downloaded" || updateState?.status === "installing" ? "Pronta para instalar" : updateState?.status === "current" ? "Atualizada" : updateState?.status === "unsupported" ? "Disponível no aplicativo instalado" : updateState?.status === "error" ? "Falha na verificação" : "Pronta para verificar"}</span></div></div>{updateState?.error && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{updateState.error}</span></div>}{updateState?.rollbackError && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{updateState.rollbackError}</span></div>}<div className="update-settings-actions"><button className="secondary-button" disabled={updateState?.status === "checking" || updateState?.status === "downloading"} onClick={() => void window.dama?.checkForUpdates()}>{updateState?.status === "checking" ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />} Procurar atualização</button><button className="quiet-button" disabled={updateState?.rollbackStatus === "checking" || updateState?.rollbackStatus === "downloading" || updateState?.status === "installing"} onClick={() => void window.dama?.rollbackUpdate()}>{updateState?.rollbackStatus === "checking" || updateState?.rollbackStatus === "downloading" ? <LoaderCircle className="spin" size={13} /> : <Undo2 size={13} />} Restaurar versão anterior</button></div></SettingsGroup></>}
+      {section === "updates" && <><SettingsGroup title="Atualizações" description="Novas versões são verificadas em um canal assinado e instaladas pelo atualizador da Dama."><Toggle label="Atualização automática" detail="Baixa e instala a versão mais recente ao abrir a Dama" checked={draft.updates.automatic} onChange={(value) => patch("updates", { ...draft.updates, automatic: value })} /><Toggle label="Procurar ao iniciar" detail="Consulta o canal estável sempre que a Dama for aberta" checked={draft.updates.checkOnStartup} onChange={(value) => patch("updates", { ...draft.updates, checkOnStartup: value })} /><div className="update-settings-status"><div><strong>Versão instalada</strong><span>{updateState?.currentVersion || "0.13.0"}</span></div><div><strong>Estado</strong><span>{updateState?.status === "checking" ? "Procurando…" : updateState?.status === "available" ? `Versão ${updateState.version} disponível` : updateState?.status === "downloading" ? `Baixando · ${Math.round(updateState.percent)}%` : updateState?.status === "downloaded" || updateState?.status === "installing" ? "Pronta para instalar" : updateState?.status === "current" ? "Atualizada" : updateState?.status === "unsupported" ? "Disponível no aplicativo instalado" : updateState?.status === "error" ? "Falha na verificação" : "Pronta para verificar"}</span></div></div>{updateState?.error && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{updateState.error}</span></div>}{updateState?.rollbackError && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{updateState.rollbackError}</span></div>}<div className="update-settings-actions"><button className="secondary-button" disabled={updateState?.status === "checking" || updateState?.status === "downloading"} onClick={() => void window.dama?.checkForUpdates()}>{updateState?.status === "checking" ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />} Procurar atualização</button><button className="quiet-button" disabled={updateState?.rollbackStatus === "checking" || updateState?.rollbackStatus === "downloading" || updateState?.status === "installing"} onClick={() => void window.dama?.rollbackUpdate()}>{updateState?.rollbackStatus === "checking" || updateState?.rollbackStatus === "downloading" ? <LoaderCircle className="spin" size={13} /> : <Undo2 size={13} />} Restaurar versão anterior</button></div></SettingsGroup></>}
       {section === "privacy" && <><SettingsGroup title="Dados e privacidade" description="Projetos e conversas ficam somente neste computador. A Dama não possui telemetria nem envio automático de diagnóstico."><Toggle label="Histórico local" detail="Salvar conversas para continuar depois e alternar entre projetos" checked={draft.privacy.localHistory} onChange={(value) => patch("privacy", { ...draft.privacy, localHistory: value })} /><Toggle disabled label="Telemetria anônima" detail="Indisponível e desligada" checked={false} onChange={() => {}} /><Toggle disabled label="Relatórios de diagnóstico" detail="Indisponível e desligado" checked={false} onChange={() => {}} /></SettingsGroup><SettingsGroup title="Acesso ao computador" description="Controle geral das autorizações usadas pelas ferramentas do agente."><Toggle label="Acesso total ao computador" detail="Permite comandos, instalações, downloads, Git, MCP e controle assistido sem mostrar um card a cada ação." checked={draft.permissions.fullAccess} onChange={(value) => { patch("permissions", { fullAccess: value }); if (value) patch("computerUse", { enabled: true }); }} /><div className="settings-inline-warning"><AlertCircle size={14} /><span>Desligado por padrão. Ative somente para modelos e projetos em que você confia. Limites de caminho, proteção de credenciais e validações destrutivas continuam ativos.</span></div></SettingsGroup><SettingsGroup title="Permissões de ferramentas" description="Autorizações de chat, projeto e comandos específicos ficam salvas apenas neste computador."><div className="reset-onboarding"><div><strong>{permissionsCleared ? "Permissões revogadas" : "Revogar permissões persistentes"}</strong><small>Na próxima operação protegida, o agente voltará a mostrar o card de autorização.</small></div><button className="secondary-button" onClick={async () => { await window.dama?.clearToolApprovals(); setPermissionsCleared(true); }}>Revogar todas</button></div></SettingsGroup></>}
     </div><footer><span>{saved ? <><Check size={12} /> Preferências salvas</> : "Alterações ficam locais"}</span><button className="primary-button" onClick={save} disabled={saving}>{saving ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />} Salvar alterações</button></footer></main>
   </section></div>;
@@ -733,6 +768,30 @@ export default function App() {
   const technicalEvents = agentEvents.filter((item) => item.stage === "execution" && (item.type === "status" || item.type === "tool" || item.type === "error")).slice(-8).reverse();
 
   useEffect(() => {
+    if (agentEvents.length > conversationLimits.agentEvents) setAgentEvents((current) => compactAgentEvents(current));
+  }, [agentEvents.length]);
+
+  useEffect(() => {
+    if (agentMessages.length > conversationLimits.agentMessages) setAgentMessages((current) => current.slice(-conversationLimits.agentMessages));
+  }, [agentMessages.length]);
+
+  useEffect(() => {
+    if (agentPlans.length > conversationLimits.agentPlans) setAgentPlans((current) => current.slice(-conversationLimits.agentPlans));
+  }, [agentPlans.length]);
+
+  useEffect(() => {
+    if (toolApprovals.length > conversationLimits.approvals) setToolApprovals((current) => current.slice(-conversationLimits.approvals));
+  }, [toolApprovals.length]);
+
+  useEffect(() => {
+    if (chatMessages.length > conversationLimits.chatMessages) setChatMessages((current) => current.slice(-conversationLimits.chatMessages));
+  }, [chatMessages.length]);
+
+  useEffect(() => {
+    if (terminalEntries.length > conversationLimits.terminalEntries) setTerminalEntries((current) => current.slice(-conversationLimits.terminalEntries));
+  }, [terminalEntries.length]);
+
+  useEffect(() => {
     setChangeSet(agentResult?.changeSet || null);
     if (!agentResult?.changeSet || agentResult.changeSet.status !== "pending") setChangeDiff(null);
   }, [agentResult?.changeSet?.id, agentResult?.changeSet?.status]);
@@ -781,10 +840,10 @@ export default function App() {
             });
             setAgentPlans((current) => current.some((item) => item.runId === recovery.payload.runId) ? current : [...current, { id: recovery.payload.runId, runId: recovery.payload.runId, prompt: recovery.payload.prompt, plan: recovery.payload.plan, status: "error", result: null, baseChangeSetId: recovery.payload.baseChangeSetId, at: recovery.startedAt }]);
           }
-        } else if (window.dama.apiVersion !== 14) {
+        } else if (window.dama.apiVersion !== 15) {
           setError("A interface foi atualizada, mas o processo desktop ainda é da versão anterior. Feche a Dama completamente e abra novamente para ativar projetos e conversas.");
         }
-        if (window.dama.apiVersion !== 14) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para ativar recuperação e permissões.");
+        if (window.dama.apiVersion !== 15) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para ativar recuperação e permissões.");
       }
     })().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => {
       window.clearTimeout(splashTimer);
@@ -842,7 +901,7 @@ export default function App() {
       kind: conversationKind,
       createdAt: conversationCreatedAt,
       updatedAt: new Date().toISOString(),
-      data: { agentMessages, agentEvents, agentPlans, toolApprovals, agentResult, chatMessages },
+      data: compactConversationData({ agentMessages, agentEvents, agentPlans, toolApprovals, agentResult, chatMessages }),
     });
     await refreshWorkspaceIndex();
   }
@@ -898,11 +957,11 @@ export default function App() {
     const liveApprovals = await window.dama!.listPendingToolApprovals();
     const liveIds = new Set(liveApprovals.filter((item) => item.runId === restoredRunId).map((item) => item.id));
     const restoredChat = Array.isArray(data.chatMessages) ? data.chatMessages as ChatMessage[] : [];
-    setAgentMessages(restoredMessages);
-    setAgentEvents(restoredEvents);
-    setAgentPlans(restoredPlans);
-    setToolApprovals([...restoredApprovals.map((item) => item.status === "pending" && !liveIds.has(item.id) ? { ...item, status: "denied" as const, decision: "deny" as const } : item), ...liveApprovals.filter((item) => item.runId === restoredRunId && !restoredApprovals.some((savedApproval) => savedApproval.id === item.id)).map((item) => ({ ...item, status: "pending" as const }))]);
-    setChatMessages(restoredChat);
+    setAgentMessages(restoredMessages.slice(-conversationLimits.agentMessages));
+    setAgentEvents(compactAgentEvents(restoredEvents));
+    setAgentPlans(restoredPlans.slice(-conversationLimits.agentPlans));
+    setToolApprovals([...restoredApprovals.map((item) => item.status === "pending" && !liveIds.has(item.id) ? { ...item, status: "denied" as const, decision: "deny" as const } : item), ...liveApprovals.filter((item) => item.runId === restoredRunId && !restoredApprovals.some((savedApproval) => savedApproval.id === item.id)).map((item) => ({ ...item, status: "pending" as const }))].slice(-conversationLimits.approvals));
+    setChatMessages(restoredChat.slice(-conversationLimits.chatMessages));
     setActiveConversationId(saved.id);
     setConversationCreatedAt(saved.createdAt);
     setConversationKind(saved.kind);
@@ -1190,8 +1249,8 @@ export default function App() {
     return window.dama.onTerminalEvent((event) => {
       setTerminalEntries((current) => current.map((entry) => entry.id === event.id ? {
         ...entry,
-        output: event.type === "output" && event.stream === "stdout" ? entry.output + (event.data || "") : entry.output,
-        errorOutput: event.type === "output" && event.stream === "stderr" ? entry.errorOutput + (event.data || "") : event.type === "error" ? entry.errorOutput + (event.data || "") : entry.errorOutput,
+        output: event.type === "output" && event.stream === "stdout" ? (entry.output + (event.data || "")).slice(-120000) : entry.output,
+        errorOutput: event.type === "output" && event.stream === "stderr" ? (entry.errorOutput + (event.data || "")).slice(-60000) : event.type === "error" ? (entry.errorOutput + (event.data || "")).slice(-60000) : entry.errorOutput,
         running: event.type === "exit" ? false : entry.running,
         code: event.type === "exit" ? event.code : entry.code,
       } : entry));
@@ -1361,7 +1420,7 @@ export default function App() {
       setActivePrompt(request);
       setPhase("planning");
       const history = buildAgentHistory([{ role: "user", content: request }]);
-      const forcePlan = /^\/planejar\b/i.test(request);
+      const forcePlan = /^\/(?:planejar|comparar-planos)\b/i.test(request);
       const rawPreparation = await window.dama!.createPlan(request, agentModelId, reasoning, runId, history, forcePlan) as AgentPreparation | Plan;
       const preparation: AgentPreparation = "plan" in rawPreparation ? rawPreparation : { mode: "plan", intro: "", plan: rawPreparation };
       const nextPlan = preparation.plan;
@@ -1377,12 +1436,15 @@ export default function App() {
         await refreshWorkspaceIndex();
         return;
       }
-      const planId = crypto.randomUUID();
+      const proposedPlans = [nextPlan, ...(preparation.alternatives || [])];
+      const planIds = proposedPlans.map(() => crypto.randomUUID());
+      const planId = planIds[0];
       activePlanId.current = planId;
       setPlan(nextPlan);
-      setAgentPlans((current) => [...current, { id: planId, runId, prompt: request, plan: nextPlan, status: "review", result: null, baseChangeSetId, at: new Date().toISOString() }]);
+      const proposedAt = Date.now();
+      setAgentPlans((current) => [...current, ...proposedPlans.map((candidate, index) => ({ id: planIds[index], runId, prompt: request, plan: candidate, status: "review" as AgentPlanStatus, result: null, baseChangeSetId, at: new Date(proposedAt + index).toISOString() }))]);
       setPhase("review");
-      finishActivity(activityId, `${nextPlan.steps.length} etapas propostas`);
+      finishActivity(activityId, proposedPlans.length > 1 ? `${proposedPlans.length} abordagens prontas para comparação` : `${nextPlan.steps.length} etapas propostas`);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
@@ -1399,7 +1461,7 @@ export default function App() {
     activeRunId.current = record.runId;
     setPlan(record.plan);
     setActivePrompt(record.prompt);
-    setAgentPlans((current) => current.map((item) => item.id === planId ? { ...item, status: "executing" } : item));
+    setAgentPlans((current) => current.map((item) => item.id === planId ? { ...item, status: "executing" } : item.runId === record.runId && item.status === "review" ? { ...item, status: "superseded" } : item));
     try {
       setError(null);
       setPhase("executing");
@@ -1944,6 +2006,7 @@ function AgentView(props: {
   const token = props.prompt.match(/(?:^|\s)([/@][^\s]*)$/)?.[1] || "";
   const commands = [
     { value: "/planejar ", label: "/planejar", detail: "Criar um plano sem implementar ainda" },
+    { value: "/comparar-planos ", label: "/comparar-planos", detail: "Mostrar abordagens alternativas antes de escolher" },
     { value: "/implementar ", label: "/implementar", detail: "Implementar direto quando for simples" },
     { value: "/revisar ", label: "/revisar", detail: "Revisar arquitetura, código ou ideia" },
     { value: "/corrigir ", label: "/corrigir", detail: "Diagnosticar e preparar uma correção" },
@@ -1990,7 +2053,7 @@ function AgentView(props: {
               if (entry.kind === "message") return entry.item.role === "user"
                 ? <article className="agent-user-message" key={entry.id}><span>Você</span><MarkdownContent content={entry.item.content} projectFiles={projectFiles} onOpenFile={props.onOpenFile} /></article>
                 : <AgentAssistantMessage key={entry.id} content={entry.item.content} typing={entry.id === latestNarrativeId} projectFiles={projectFiles} onOpenFile={props.onOpenFile} />;
-              if (entry.kind === "plan") return <PlanReview key={entry.id} plan={entry.item.plan} phase={entry.item.status} result={entry.item.result} onApprove={() => props.onApprove(entry.item.id)} onReject={() => props.onReject(entry.item.id)} onOpenFile={props.onOpenFile} onRunCommand={props.onRunCommand} />;
+              if (entry.kind === "plan") { const siblings = props.plans.filter((item) => item.runId === entry.item.runId && !["rejected"].includes(item.status)); const optionIndex = siblings.findIndex((item) => item.id === entry.item.id); return <PlanReview key={entry.id} optionLabel={siblings.length > 1 ? `Opção ${optionIndex + 1} de ${siblings.length}` : undefined} plan={entry.item.plan} phase={entry.item.status} result={entry.item.result} onApprove={() => props.onApprove(entry.item.id)} onReject={() => props.onReject(entry.item.id)} onOpenFile={props.onOpenFile} onRunCommand={props.onRunCommand} />; }
               if (entry.kind === "approval") return <ToolApprovalCard key={entry.id} request={entry.item} onResolve={(decision) => props.onResolveApproval(entry.item.id, decision)} />;
               if (entry.kind === "activity") return <AgentActivitySummary key={entry.id} events={entry.items} />;
               if (entry.item.type === "message" || entry.item.type === "commentary" || entry.item.type === "error") return <AgentAssistantMessage key={entry.id} content={entry.item.detail} label={entry.item.type === "error" ? entry.item.title : "Dama"} error={entry.item.type === "error"} typing={entry.id === latestNarrativeId} projectFiles={projectFiles} onOpenFile={props.onOpenFile} />;
@@ -2068,11 +2131,11 @@ function AgentActivitySummary({ events }: { events: AgentProgressEvent[] }) {
   </details>;
 }
 
-function PlanReview({ plan, phase, result, onApprove, onReject, onOpenFile, onRunCommand }: { plan: Plan; phase: AgentPlanStatus; result: AgentResult | null; onApprove: () => void; onReject: () => void; onOpenFile: (path: string) => void; onRunCommand: (command: string) => void }) {
+function PlanReview({ plan, phase, result, optionLabel, onApprove, onReject, onOpenFile, onRunCommand }: { plan: Plan; phase: AgentPlanStatus; result: AgentResult | null; optionLabel?: string; onApprove: () => void; onReject: () => void; onOpenFile: (path: string) => void; onRunCommand: (command: string) => void }) {
   const stateLabel = phase === "review" ? "Aguardando aprovação" : phase === "editing" ? "Editando este plano" : phase === "executing" ? "Executando" : phase === "done" ? "Concluído" : phase === "rejected" ? "Ajuste solicitado" : phase === "superseded" ? "Substituído" : phase === "error" ? "Interrompido" : phase;
   return (
     <section className="plan-card">
-      <header><div><span className="eyebrow">Plano proposto</span><h2>{plan.title}</h2><p>{plan.summary}</p></div><span className={`plan-state ${phase}`}>{stateLabel}</span></header>
+      <header><div><span className="eyebrow">{optionLabel || "Plano proposto"}</span><h2>{plan.title}</h2><p>{plan.summary}</p></div><span className={`plan-state ${phase}`}>{stateLabel}</span></header>
       <ol className="plan-steps">{plan.steps.map((step, index) => <li key={`${step.title}-${index}`}><span>{index + 1}</span><div><strong>{step.title}</strong><p>{step.detail}</p>{step.files?.length ? <div className="file-chips">{step.files.map((file) => <button key={file} onClick={() => onOpenFile(file)}>{file}</button>)}</div> : null}</div></li>)}</ol>
       {plan.risks?.length ? <div className="risk-box"><AlertCircle size={15} /><div><strong>Pontos de atenção</strong>{plan.risks.map((risk) => <p key={risk}>{risk}</p>)}</div></div> : null}
       {phase === "review" && <footer><button className="quiet-button" onClick={onReject}>Editar plano</button><button className="primary-button" onClick={onApprove}><Check size={14} /> Aprovar e implementar</button></footer>}
@@ -2176,6 +2239,17 @@ function NotesView({ project, file, draft, setDraft, dirty, saving, onSave, onOp
   const notes = useMemo(() => project ? noteFilesFromTree(project.files) : [], [project]);
   const words = useMemo(() => draft.trim() ? draft.trim().split(/\s+/).length : 0, [draft]);
   const imageCount = useMemo(() => (draft.match(/!\[[^\]]*\]\([^)]+\)/g) || []).length, [draft]);
+  const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
+  const previousModelPathRef = useRef<string | null>(null);
+  const noteModelPath = file ? `note:${file.path}` : null;
+
+  useEffect(() => {
+    const previousPath = previousModelPathRef.current;
+    previousModelPathRef.current = noteModelPath;
+    if (!previousPath || previousPath === noteModelPath || !monacoRef.current) return;
+    const staleModel = monacoRef.current.editor.getModel(monacoRef.current.Uri.parse(previousPath));
+    if (staleModel && staleModel !== editorRef.current?.getModel()) staleModel.dispose();
+  }, [noteModelPath]);
 
   function insertMarkdown(markdown: string) {
     const editor = editorRef.current;
@@ -2233,7 +2307,7 @@ function NotesView({ project, file, draft, setDraft, dirty, saving, onSave, onOp
     <header className="notes-toolbar"><div className="note-file"><BookOpen size={14} /><span>{file.path}</span>{dirty && <span className="dirty-dot" />}</div><div className="note-mode-switch"><button className={mode === "edit" ? "active" : ""} onClick={() => setMode("edit")} title="Somente edição"><PanelLeft size={13} /></button><button className={mode === "split" ? "active" : ""} onClick={() => setMode("split")} title="Edição e preview"><Code2 size={13} /><Eye size={13} /></button><button className={mode === "preview" ? "active" : ""} onClick={() => setMode("preview")} title="Somente leitura"><Eye size={13} /></button></div><div className="note-actions"><input ref={imageInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(event) => { const selected = event.target.files?.[0]; if (selected) void addImage(selected); event.target.value = ""; }} /><button className="note-image-button" disabled={importing} onClick={() => imageInput.current?.click()}>{importing ? <LoaderCircle className="spin" size={13} /> : <ImagePlus size={13} />} Imagem</button><button className="save-button" onClick={onSave} disabled={!dirty || saving}>{saving ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />} Salvar <kbd>Ctrl S</kbd></button></div></header>
     {noteError && <div className="note-error"><AlertCircle size={13} /><span>{noteError}</span><button onClick={() => setNoteError(null)}><X size={12} /></button></div>}
     <div className="notes-canvas">
-      {mode !== "preview" && <div className="note-editor-pane"><MonacoEditor path={`note:${file.path}`} value={draft} language="markdown" theme="dama-dark" onMount={(editor) => { editorRef.current = editor; }} onChange={(value) => setDraft(value || "")} beforeMount={(monaco) => { monaco.editor.defineTheme("dama-dark", { base: "vs-dark", inherit: true, rules: [{ token: "markup.heading.markdown", foreground: "EFC99F", fontStyle: "bold" }, { token: "string.link.markdown", foreground: "9FBE91" }, { token: "keyword", foreground: "D8A26C" }], colors: { "editor.background": "#191916", "editor.foreground": "#D7D3CA", "editorLineNumber.foreground": "#54524D", "editorLineNumber.activeForeground": "#A7A39A", "editorCursor.foreground": "#EFC99F", "editor.selectionBackground": "#4B403260" } }); }} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: "Consolas, 'Courier New', monospace", fontSize: 13, lineHeight: 22, lineNumbers: "off", folding: false, wordWrap: "on", scrollBeyondLastLine: false, smoothScrolling: true, padding: { top: 24, bottom: 24 } }} /></div>}
+      {mode !== "preview" && <div className="note-editor-pane"><MonacoEditor path={noteModelPath || undefined} value={draft} language="markdown" theme="dama-dark" onMount={(editor, monaco) => { editorRef.current = editor; monacoRef.current = monaco; }} onChange={(value) => setDraft(value || "")} beforeMount={(monaco) => { monaco.editor.defineTheme("dama-dark", { base: "vs-dark", inherit: true, rules: [{ token: "markup.heading.markdown", foreground: "EFC99F", fontStyle: "bold" }, { token: "string.link.markdown", foreground: "9FBE91" }, { token: "keyword", foreground: "D8A26C" }], colors: { "editor.background": "#191916", "editor.foreground": "#D7D3CA", "editorLineNumber.foreground": "#54524D", "editorLineNumber.activeForeground": "#A7A39A", "editorCursor.foreground": "#EFC99F", "editor.selectionBackground": "#4B403260" } }); }} options={{ automaticLayout: true, minimap: { enabled: false }, fontFamily: "Consolas, 'Courier New', monospace", fontSize: 13, lineHeight: 22, lineNumbers: "off", folding: false, wordWrap: "on", scrollBeyondLastLine: false, smoothScrolling: true, padding: { top: 24, bottom: 24 } }} /></div>}
       {mode !== "edit" && <article className="note-preview"><NoteMarkdownContent content={draft} notePath={file.path} projectFiles={projectFiles} onOpenNote={openLinkedNote} /></article>}
     </div>
     {dragging && <div className="note-drop-overlay"><ImagePlus size={24} /><strong>Solte para anexar à nota</strong></div>}
@@ -2244,20 +2318,31 @@ function NotesView({ project, file, draft, setDraft, dirty, saving, onSave, onOp
 function EditorView({ file, line, draft, setDraft, dirty, saving, onSave, onOpenProject }: { file: OpenFile | null; line: number | null; draft: string; setDraft: (value: string) => void; dirty: boolean; saving: boolean; onSave: () => void; onOpenProject: () => void }) {
   const lineCount = useMemo(() => draft.split("\n").length, [draft]);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
+  const previousModelPathRef = useRef<string | null>(null);
   useEffect(() => {
     if (!line || !editorRef.current) return;
     editorRef.current.setPosition({ lineNumber: line, column: 1 });
     editorRef.current.revealLineInCenter(line);
     editorRef.current.focus();
   }, [file?.path, line]);
+  useEffect(() => {
+    const currentPath = file?.path || null;
+    const previousPath = previousModelPathRef.current;
+    previousModelPathRef.current = currentPath;
+    if (!previousPath || previousPath === currentPath || !monacoRef.current) return;
+    const staleModel = monacoRef.current.editor.getModel(monacoRef.current.Uri.parse(previousPath));
+    if (staleModel && staleModel !== editorRef.current?.getModel()) staleModel.dispose();
+  }, [file?.path]);
   if (!file) return <CenteredEmpty icon={<FileCode2 size={25} />} title="Nenhum arquivo aberto" text="Escolha um arquivo no explorador para visualizar e editar." action="Abrir projeto" onAction={onOpenProject} />;
   const extension = file.path.split(".").pop()?.toLowerCase() || "";
   const languageMap: Record<string, string> = { ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", json: "json", css: "css", scss: "scss", html: "html", md: "markdown", py: "python", go: "go", rs: "rust", java: "java", php: "php", sql: "sql", yaml: "yaml", yml: "yaml", sh: "shell", ps1: "powershell" };
   return (
     <div className="editor-view">
       <header className="editor-toolbar"><div><FileCode2 size={14} /><span>{file.path}</span>{dirty && <span className="dirty-dot" />}</div><button className="save-button" onClick={onSave} disabled={!dirty || saving}>{saving ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />} Salvar <kbd>Ctrl S</kbd></button></header>
-      <div className="monaco-host"><MonacoEditor path={file.path} value={draft} language={languageMap[extension] || "plaintext"} theme="dama-dark" onMount={(editor) => {
+      <div className="monaco-host"><MonacoEditor path={file.path} value={draft} language={languageMap[extension] || "plaintext"} theme="dama-dark" onMount={(editor, monaco) => {
         editorRef.current = editor;
+        monacoRef.current = monaco;
         if (line) {
           editor.setPosition({ lineNumber: line, column: 1 });
           editor.revealLineInCenter(line);
@@ -2281,6 +2366,12 @@ function GitView({ project, git, onRefresh, onInit, onOperation, onOpen }: { pro
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [output, setOutput] = useState<string | null>(null);
+  const [compareBase, setCompareBase] = useState("main");
+  const [compareTarget, setCompareTarget] = useState("HEAD");
+  const [compareOutput, setCompareOutput] = useState<string | null>(null);
+  const [checkpointLabel, setCheckpointLabel] = useState("");
+  const [checkpoints, setCheckpoints] = useState<ManualCheckpoint[]>([]);
+  const [checkpointBusy, setCheckpointBusy] = useState(false);
   const actions = [
     ["status", "Atualizar status"], ["branches", "Listar branches"], ["create_branch", "Criar branch"], ["checkout", "Trocar branch"],
     ["stage", "Adicionar ao stage"], ["unstage", "Remover do stage"], ["commit", "Criar commit"], ["pull", "Pull"], ["push", "Push"],
@@ -2289,6 +2380,34 @@ function GitView({ project, git, onRefresh, onInit, onOperation, onOpen }: { pro
   ];
   const needsValue = !["status", "branches", "pull", "push", "stash", "stash_list", "stash_pop", "abort_merge"].includes(action);
   const placeholder = action === "commit" ? "Mensagem do commit" : action === "create_branch" || action === "checkout" || action === "merge" ? "Nome da branch" : action === "revert" ? "Hash do commit" : "Caminhos separados por vírgula";
+  async function refreshCheckpoints() {
+    if (!window.dama?.listCheckpoints || !project || !git.repository) return;
+    setCheckpoints((await window.dama.listCheckpoints()).checkpoints);
+  }
+  useEffect(() => { void refreshCheckpoints(); }, [project?.path, git.repository]);
+  async function compareBranches(event: FormEvent) {
+    event.preventDefault(); setCompareOutput(null);
+    try { const result = await window.dama!.gitCompare({ base: compareBase.trim(), compare: compareTarget.trim(), mode: "patch" }); setCompareOutput([result.stdout, result.stderr, result.commits ? `Commits exclusivos:\n${result.commits}` : ""].filter(Boolean).join("\n\n") || "Nenhuma diferença encontrada."); }
+    catch (cause) { setCompareOutput(cause instanceof Error ? cause.message : String(cause)); }
+  }
+  async function createCheckpoint() {
+    if (!window.dama?.createCheckpoint) return;
+    setCheckpointBusy(true);
+    try { await window.dama.createCheckpoint(checkpointLabel.trim() || "Checkpoint manual"); setCheckpointLabel(""); await refreshCheckpoints(); }
+    finally { setCheckpointBusy(false); }
+  }
+  async function restoreCheckpoint(id: string) {
+    if (!window.dama?.restoreCheckpoint) return;
+    setCheckpointBusy(true);
+    try { await window.dama.restoreCheckpoint(id); await onRefresh(); await refreshCheckpoints(); }
+    finally { setCheckpointBusy(false); }
+  }
+  async function deleteCheckpoint(id: string) {
+    if (!window.dama?.deleteCheckpoint) return;
+    setCheckpointBusy(true);
+    try { await window.dama.deleteCheckpoint(id); await refreshCheckpoints(); }
+    finally { setCheckpointBusy(false); }
+  }
   async function runOperation(event: FormEvent) {
     event.preventDefault();
     setBusy(true); setOutput(null);
@@ -2306,7 +2425,7 @@ function GitView({ project, git, onRefresh, onInit, onOperation, onOpen }: { pro
   }
   if (!project) return <CenteredEmpty icon={<GitBranch size={24} />} title="Nenhum repositório aberto" text="Abra um projeto para visualizar o estado do Git." />;
   if (!git.repository) return <CenteredEmpty icon={<GitBranch size={24} />} title="Git ainda não iniciado" text="Você pode iniciar um repositório nesta pasta. Nenhum arquivo será commitado." action="Iniciar Git" onAction={onInit} />;
-  return <div className="git-view"><header><div><span className="eyebrow">Branch atual</span><h2><GitBranch size={18} />{git.branch}</h2></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={13} /> Atualizar</button></header><form className="git-operations" onSubmit={runOperation}><select value={action} onChange={(event) => { setAction(event.target.value); setValue(""); setOutput(null); }}>{actions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select>{needsValue && <input value={value} onChange={(event) => setValue(event.target.value)} placeholder={placeholder} />}<button className="primary-button" disabled={busy || needsValue && !value.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Play size={13} />} Executar</button></form>{output && <pre className="git-operation-output">{output}</pre>}<section><div className="section-heading"><span>Alterações locais</span><small>{git.changes.length}</small></div>{git.changes.length ? git.changes.map((change) => <button className="git-file-row" key={`${change.status}-${change.path}`} onClick={() => onOpen(change.path)}><span className={`git-status status-${change.status[0]}`}>{change.status}</span><span>{change.path}</span><ChevronRight size={13} /></button>) : <div className="clean-state"><CheckCircle2 size={20} /><p>O diretório de trabalho está limpo.</p></div>}</section></div>;
+  return <div className="git-view"><header><div><span className="eyebrow">Branch atual</span><h2><GitBranch size={18} />{git.branch}</h2></div><button className="secondary-button" onClick={onRefresh}><RefreshCw size={13} /> Atualizar</button></header><form className="git-operations" onSubmit={runOperation}><select value={action} onChange={(event) => { setAction(event.target.value); setValue(""); setOutput(null); }}>{actions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select>{needsValue && <input value={value} onChange={(event) => setValue(event.target.value)} placeholder={placeholder} />}<button className="primary-button" disabled={busy || needsValue && !value.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : <Play size={13} />} Executar</button></form>{output && <pre className="git-operation-output">{output}</pre>}<div className="git-advanced-grid"><section className="git-tool-card"><div className="section-heading"><span>Comparar branches</span><small>antes do merge</small></div><form onSubmit={compareBranches}><input value={compareBase} onChange={(event) => setCompareBase(event.target.value)} placeholder="Base, ex.: main" /><span>…</span><input value={compareTarget} onChange={(event) => setCompareTarget(event.target.value)} placeholder="Comparar, ex.: HEAD" /><button disabled={!compareBase.trim() || !compareTarget.trim()}><Search size={13} /> Comparar</button></form>{compareOutput && <pre>{compareOutput}</pre>}</section><section className="git-tool-card"><div className="section-heading"><span>Checkpoints manuais</span><small>{checkpoints.length}</small></div><div className="checkpoint-create"><input value={checkpointLabel} onChange={(event) => setCheckpointLabel(event.target.value)} placeholder="Nome do ponto salvo" /><button disabled={checkpointBusy} onClick={() => void createCheckpoint()}>{checkpointBusy ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />} Salvar estado</button></div><div className="checkpoint-list">{checkpoints.map((checkpoint) => <div key={checkpoint.id}><span><strong>{checkpoint.label}</strong><small>{new Date(checkpoint.createdAt).toLocaleString()} · {checkpoint.dirty ? "com alterações" : "workspace limpo"}</small></span><button title="Restaurar" disabled={checkpointBusy || !checkpoint.dirty} onClick={() => void restoreCheckpoint(checkpoint.id)}><Undo2 size={13} /></button><button title="Remover" disabled={checkpointBusy} onClick={() => void deleteCheckpoint(checkpoint.id)}><Trash2 size={13} /></button></div>)}{!checkpoints.length && <p>Nenhum checkpoint salvo neste projeto.</p>}</div></section></div><section><div className="section-heading"><span>Alterações locais</span><small>{git.changes.length}</small></div>{git.changes.length ? git.changes.map((change) => <button className="git-file-row" key={`${change.status}-${change.path}`} onClick={() => onOpen(change.path)}><span className={`git-status status-${change.status[0]}`}>{change.status}</span><span>{change.path}</span><ChevronRight size={13} /></button>) : <div className="clean-state"><CheckCircle2 size={20} /><p>O diretório de trabalho está limpo.</p></div>}</section></div>;
 }
 
 function TerminalView({ project, input, setInput, entries, onRequest, onStop, onClear }: { project: OpenProject | null; input: string; setInput: (value: string) => void; entries: TerminalEntry[]; onRequest: (command: string) => void; onStop: (id: string) => void; onClear: () => void }) {

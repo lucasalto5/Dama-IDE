@@ -6,6 +6,8 @@ type OpenFile = { path: string; content: string; modifiedAt: number };
 type SearchResult = { path: string; line: number; preview: string };
 type GitSummary = { repository: boolean; branch: string | null; changes: Array<{ status: string; path: string }> };
 type GitOperationResult = { code: number; stdout: string; stderr: string; action: string; status: string; conflicts: string[] };
+type GitCompareResult = { code: number; stdout: string; stderr: string; base: string; compare: string; mode: string; commits: string };
+type ManualCheckpoint = { id: string; label: string; createdAt: string; dirty: boolean; commit: string; restored?: boolean; code?: number };
 type CommandResult = { code: number; stdout: string; stderr: string; command: string };
 type PreviewState = { running: boolean; url: string | null; logs: string[]; command: string | null };
 type PreviewElementReference = {
@@ -100,7 +102,7 @@ type Plan = {
   commands?: Array<{ command: string; reason: string }>;
   risks?: string[];
 };
-type AgentPreparation = { mode: "direct" | "plan"; intro: string; plan: Plan; standalone?: boolean; conversation?: boolean };
+type AgentPreparation = { mode: "direct" | "plan"; intro: string; plan: Plan; alternatives?: Plan[]; standalone?: boolean; conversation?: boolean };
 type ChangeSetSummary = { id: string; status: "pending" | "accepted" | "rejected"; createdAt: string; projectPath: string; added: number; removed: number; files: Array<{ path: string; added: number; removed: number; created: boolean }> };
 type ChangeDiff = { path: string; added: number; removed: number; lines: Array<{ kind: "same" | "added" | "removed" | "skip"; oldLine: number | null; newLine: number | null; content: string }> };
 type ChangeSetResolution = { changeSet: ChangeSetSummary; project: OpenProject; git: GitSummary };
@@ -157,6 +159,11 @@ interface Window {
     gitDiff: (relativePath?: string) => Promise<string>;
     gitInit: () => Promise<GitSummary>;
     gitOperation: (input: Record<string, unknown>) => Promise<GitOperationResult>;
+    gitCompare: (input: { base: string; compare: string; mode: "summary" | "files" | "patch" }) => Promise<GitCompareResult>;
+    listCheckpoints: () => Promise<{ checkpoints: ManualCheckpoint[] }>;
+    createCheckpoint: (label: string) => Promise<ManualCheckpoint>;
+    restoreCheckpoint: (id: string) => Promise<ManualCheckpoint>;
+    deleteCheckpoint: (id: string) => Promise<{ deleted: boolean; id: string }>;
     runCommand: (command: string) => Promise<CommandResult>;
     startCommand: (command: string, id: string) => Promise<{ id: string; command: string }>;
     stopCommand: (id: string) => Promise<boolean>;

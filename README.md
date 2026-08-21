@@ -19,7 +19,7 @@ Imagens
 <a href="https://ibb.co/dwkZ9yJj"><img src="https://i.ibb.co/ycg2TJBd/Captura-de-tela-2026-08-12-161524.png" alt="Captura-de-tela-2026-08-12-161524" border="0" /></a>
 
 
-## Marco atual — 0.12.4
+## Marco atual — 0.13.0
 
 Esta versão já possui uma primeira fatia funcional:
 

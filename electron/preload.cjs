@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("dama", {
-  apiVersion: 14,
+  apiVersion: 15,
   openProject: () => ipcRenderer.invoke("project:open"),
   createProject: (name) => ipcRenderer.invoke("project:create", name),
   selectProject: (projectPath) => ipcRenderer.invoke("workspace:selectProject", projectPath),
@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld("dama", {
   gitDiff: (relativePath) => ipcRenderer.invoke("git:diff", relativePath),
   gitInit: () => ipcRenderer.invoke("git:init"),
   gitOperation: (input) => ipcRenderer.invoke("git:operation", input),
+  gitCompare: (input) => ipcRenderer.invoke("git:compare", input),
+  listCheckpoints: () => ipcRenderer.invoke("checkpoint:list"),
+  createCheckpoint: (label) => ipcRenderer.invoke("checkpoint:create", label),
+  restoreCheckpoint: (id) => ipcRenderer.invoke("checkpoint:restore", id),
+  deleteCheckpoint: (id) => ipcRenderer.invoke("checkpoint:delete", id),
   runCommand: (command) => ipcRenderer.invoke("terminal:run", command),
   startCommand: (command, id) => ipcRenderer.invoke("terminal:start", command, id),
   stopCommand: (id) => ipcRenderer.invoke("terminal:stop", id),
