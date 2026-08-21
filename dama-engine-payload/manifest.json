@@ -1,0 +1,20 @@
+{
+  "id": "dama-ai",
+  "version": "1.0.0",
+  "source": "Carnaval IA / Dama",
+  "features": [
+    "Perfil oficial Dama",
+    "Planejamento proporcional",
+    "Execução orientada por evidências",
+    "Revisão e validação",
+    "Direção visual anti-template"
+  ],
+  "promptFile": "profile.md",
+  "files": [
+    {
+      "path": "profile.md",
+      "size": 2738,
+      "sha256": "26166a9e48d02eda8e77cf759246430413cbd455edc223a0d8d165bc0ce4622f"
+    }
+  ]
+}

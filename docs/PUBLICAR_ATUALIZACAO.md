@@ -16,6 +16,8 @@ Para que computadores já instalados recebam a atualização, a release e seus a
    - `release/Dama-Setup-0.10.3.exe`
    - `release/Dama-Setup-0.10.3.exe.blockmap`
    - `release/latest.yml`
+   - `release/Dama-AI-Component-1.0.0.zip`
+   - `release/dama-ai-component.json`
 6. Publique a release como `Latest`.
 
 Ao enviar uma tag `v*`, o workflow `.github/workflows/release.yml` executa estas etapas e publica os três artefatos automaticamente.

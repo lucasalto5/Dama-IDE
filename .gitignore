@@ -9,7 +9,9 @@ Thumbs.db
 !.env.example
 
 # Componentes e infraestrutura privados
-dama-engine-payload/
+dama-engine-payload/*
+!dama-engine-payload/manifest.json
+!dama-engine-payload/profile.md
 services/
 private/
 server-private/

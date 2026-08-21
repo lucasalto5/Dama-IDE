@@ -6,7 +6,7 @@ Dama é uma IDE agêntica desktop e independente de modelo. Ela conecta APIs dir
 
 ## Código público com proteção contra cópias concorrentes
 
-Este repositório contém a IDE desktop, interface, runtime agêntico, ferramentas locais, instalador, testes e atualizador. Servidores hospedados, credenciais, pesos de modelos e o payload proprietário opcional da Dama AI são distribuídos separadamente e não fazem parte do código público. A IDE continua funcional com APIs compatíveis, NVIDIA NIM, Ollama e LM Studio sem esse componente.
+Este repositório contém a IDE desktop, interface, runtime agêntico, ferramentas locais, instalador, testes, atualizador e o perfil empacotável da Dama AI. Servidores hospedados, credenciais e pesos de modelos são distribuídos separadamente e não fazem parte do código público. A IDE continua funcional com APIs compatíveis, NVIDIA NIM, Ollama e LM Studio sem o componente opcional.
 
 O Dama AI pode ser escolhido no instalador ou adicionado mais tarde em **Configurações → Dama AI**. Nesse segundo fluxo, a IDE baixa o pacote publicado separadamente na release oficial e confere origem, tamanho, SHA-256 e integridade dos arquivos antes de ativá-lo.
 
