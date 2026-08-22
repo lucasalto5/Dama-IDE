@@ -23,6 +23,7 @@ const { isStandaloneResearchRequest, isDirectConversationRequest } = require("./
 const { createRemoteManager } = require("./remote-server.cjs");
 const { validateStructuredFile, normalizedToolFileContent } = require("./file-content.cjs");
 const { compactConversationData, compactExecutionMessages } = require("./conversation-compact.cjs");
+const { NVIDIA_BASE_URL, inferMetadata, normalizeCatalog, rankAutomaticProfiles } = require("./nvidia-catalog.cjs");
 const nodePty = require("node-pty");
 
 const execFileAsync = promisify(execFile);
@@ -91,6 +92,7 @@ const defaultSettings = {
   plugins: [],
   toolApprovals: [],
   modelProfiles: [],
+  providerCredentials: { nvidia: { tokenCipher: null, updatedAt: null } },
   activeModelId: null,
   modelRouting: { mode: "single", primary: null, build: null, review: null, orchestrate: null, reviewPasses: 1, fallbackOrder: [] },
 };
@@ -481,7 +483,7 @@ function normalizeModelRouting(input, profiles = [], activeModelId = null) {
   const fallbackOrder = [...new Set((Array.isArray(source.fallbackOrder) ? source.fallbackOrder : []).filter((id) => validIds.has(id)))];
   const primary = validModel(source.primary) || validModel(activeModelId) || profiles[0]?.id || null;
   return {
-    mode: source.mode === "team" ? "team" : "single",
+    mode: ["single", "team", "auto"].includes(source.mode) ? source.mode : "single",
     primary,
     orchestrate: validModel(source.orchestrate),
     build: validModel(source.build),
@@ -512,6 +514,16 @@ function mergeSettings(current, patch) {
     mcpServers: patch?.mcpServers ?? current?.mcpServers ?? [],
     plugins: patch?.plugins ?? current?.plugins ?? [],
     toolApprovals: patch?.toolApprovals ?? current?.toolApprovals ?? [],
+    providerCredentials: {
+      ...defaultSettings.providerCredentials,
+      ...current?.providerCredentials,
+      ...patch?.providerCredentials,
+      nvidia: {
+        ...defaultSettings.providerCredentials.nvidia,
+        ...current?.providerCredentials?.nvidia,
+        ...patch?.providerCredentials?.nvidia,
+      },
+    },
     modelProfiles,
     activeModelId,
     modelRouting: normalizeModelRouting({ ...current?.modelRouting, ...patch?.modelRouting }, modelProfiles, activeModelId),
@@ -519,7 +531,7 @@ function mergeSettings(current, patch) {
 }
 
 function publicSettings(settings) {
-  const { modelProfiles: _privateModels, activeModelId: _activeModelId, modelRouting: _modelRouting, toolApprovals: _toolApprovals, ...safe } = settings;
+  const { modelProfiles: _privateModels, providerCredentials: _providerCredentials, activeModelId: _activeModelId, modelRouting: _modelRouting, toolApprovals: _toolApprovals, ...safe } = settings;
   return safe;
 }
 
@@ -1225,13 +1237,87 @@ async function requestCompletion(config, messages, options = {}) {
   return message;
 }
 
+function resolveNvidiaToken(settings) {
+  const providerToken = decryptToken(settings.providerCredentials?.nvidia?.tokenCipher);
+  if (providerToken) return providerToken;
+  const legacy = (settings.modelProfiles || []).find((profile) => profile.provider === "nvidia" && profile.tokenCipher);
+  return legacy ? decryptToken(legacy.tokenCipher) : "";
+}
+
+function tokenForProfile(profile, settings) {
+  if (profile?.provider === "nvidia" || profile?.credentialProvider === "nvidia") {
+    return resolveNvidiaToken(settings) || decryptToken(profile.tokenCipher);
+  }
+  return decryptToken(profile?.tokenCipher);
+}
+
+async function fetchNvidiaCatalog(token, settings) {
+  let response;
+  try {
+    response = await fetch(`${NVIDIA_BASE_URL}/models`, {
+      method: "GET",
+      headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+    });
+  } catch (error) {
+    throw new Error(`Não foi possível consultar o catálogo NVIDIA: ${error.message}`);
+  }
+  if (!response.ok) {
+    const body = (await response.text()).slice(0, 800) || response.statusText;
+    throw new ModelApiError(`A NVIDIA respondeu ${response.status} ao consultar o catálogo: ${body}`, {
+      kind: classifyModelFailure(response.status, body), status: response.status, url: `${NVIDIA_BASE_URL}/models`, body,
+    });
+  }
+  const payload = await response.json();
+  return normalizeCatalog(payload, settings.modelProfiles || []);
+}
+
+async function recordModelHealth(profileId, success, latencyMs, errorKind = null) {
+  if (!profileId || profileId === DAMA_AI_MODEL_ID) return;
+  const settings = await readSettings();
+  const now = new Date().toISOString();
+  let changed = false;
+  const modelProfiles = (settings.modelProfiles || []).map((profile) => {
+    if (profile.id !== profileId) return profile;
+    changed = true;
+    const previous = profile.health || {};
+    const previousSamples = Math.max(0, Number(previous.samples) || 0);
+    const previousSuccesses = Math.max(0, Number(previous.successes) || 0);
+    const samples = Math.min(100, previousSamples + 1);
+    const successes = Math.min(samples, previousSamples >= 100
+      ? Math.round(previousSuccesses * 0.96) + (success ? 1 : 0)
+      : previousSuccesses + (success ? 1 : 0));
+    const oldAverage = Math.max(0, Number(previous.averageLatencyMs) || 0);
+    const measured = Math.max(0, Number(latencyMs) || 0);
+    const averageLatencyMs = measured ? Math.round(oldAverage ? oldAverage * 0.72 + measured * 0.28 : measured) : oldAverage;
+    return {
+      ...profile,
+      health: {
+        samples,
+        successes,
+        averageLatencyMs,
+        lastLatencyMs: measured || previous.lastLatencyMs || null,
+        lastSuccessAt: success ? now : previous.lastSuccessAt || null,
+        lastFailureAt: success ? previous.lastFailureAt || null : now,
+        lastErrorKind: success ? null : errorKind || "unknown",
+      },
+    };
+  });
+  if (changed) await updateSettings({ modelProfiles });
+}
+
 async function modelCandidates(role = "primary", explicitId = null) {
   const settings = await readSettings();
   const profiles = settings.modelProfiles || [];
   const routing = settings.modelRouting || defaultSettings.modelRouting;
   const assignedId = routing.mode === "team" ? routing[role] : routing.primary;
   const firstId = explicitId || assignedId || routing.primary || settings.activeModelId;
-  const ids = [firstId, ...(settings.modelRouting?.fallbackOrder || [])].filter(Boolean);
+  const automaticPool = routing.fallbackOrder?.length
+    ? routing.fallbackOrder.map((id) => profiles.find((profile) => profile.id === id)).filter(Boolean)
+    : profiles;
+  const automaticIds = routing.mode === "auto" && !explicitId
+    ? rankAutomaticProfiles(automaticPool, role).map((profile) => profile.id)
+    : [];
+  const ids = [...automaticIds, firstId, ...(settings.modelRouting?.fallbackOrder || [])].filter(Boolean);
   const unique = [...new Set(ids)];
   const candidates = [];
   for (const id of unique) {
@@ -1248,7 +1334,7 @@ async function modelCandidates(role = "primary", explicitId = null) {
       }
       candidates.push({
         ...baseProfile,
-        token: decryptToken(baseProfile.tokenCipher),
+        token: tokenForProfile(baseProfile, settings),
         name: "Dama AI",
         displayModel: `Dama AI · ${baseProfile.model}`,
         virtualProfileId: DAMA_AI_MODEL_ID,
@@ -1256,7 +1342,7 @@ async function modelCandidates(role = "primary", explicitId = null) {
       continue;
     }
     const profile = profiles.find((item) => item.id === id);
-    if (profile) candidates.push({ ...profile, token: decryptToken(profile.tokenCipher) });
+    if (profile) candidates.push({ ...profile, token: tokenForProfile(profile, settings) });
   }
   if (!candidates.length && connectorConfig) candidates.push(connectorConfig);
   return candidates;
@@ -1277,14 +1363,17 @@ async function chatCompletion(messages, options = {}) {
       const label = config.name || config.model;
       const candidateKey = config.virtualProfileId || config.id || `${config.url}|${config.model}`;
       if (disabled.has(candidateKey)) continue;
+      const startedAt = Date.now();
       try {
         if (config.virtualProfileId === DAMA_AI_MODEL_ID) await damaQuota.assertAvailable();
         const response = await requestCompletion(config, messages, options);
+        await recordModelHealth(config.id, true, Date.now() - startedAt);
         if (config.virtualProfileId === DAMA_AI_MODEL_ID) await damaQuota.consume({ usage: response._damaUsage, messages, responseText: response.content });
         if (retried && options.runId) emitAgentEvent(options.runId, options.stage || "execution", "status", "Reconectando aos modelos", `${config.name || config.model} respondeu após a reconexão.`, "done");
         return response;
       }
       catch (error) {
+        await recordModelHealth(config.id, false, Date.now() - startedAt, error?.kind);
         failures.set(candidateKey, { label, error });
         if (error instanceof DamaQuotaError || !(error instanceof ModelApiError) || !error.retryable) disabled.add(candidateKey);
       }
@@ -2804,14 +2893,18 @@ ipcMain.handle("models:list", async () => {
   return publicModelsState();
 });
 ipcMain.handle("models:testAndSave", async (_event, input) => {
+  const currentSettings = await readSettings();
+  const provider = String(input.provider || "custom");
+  const suppliedToken = String(input.token || "");
+  const reusableToken = provider === "nvidia" ? resolveNvidiaToken(currentSettings) : "";
   const config = {
     id: input.id || randomUUID(),
     name: String(input.name || input.model || "Modelo"),
-    provider: String(input.provider || "custom"),
+    provider,
     kind: String(input.kind || "api"),
     url: String(input.url || ""),
     model: String(input.model || ""),
-    token: String(input.token || ""),
+    token: suppliedToken || reusableToken,
     temperature: Number(input.temperature ?? 0.2),
     maxTokens: input.maxTokens ? Number(input.maxTokens) : null,
   };
@@ -2821,21 +2914,113 @@ ipcMain.handle("models:testAndSave", async (_event, input) => {
   if (!probe) throw new Error("A API respondeu, mas não devolveu conteúdo utilizável.");
   const settings = await readSettings();
   const previous = (settings.modelProfiles || []).find((item) => item.id === config.id);
-  const tokenCipher = config.token ? encryptToken(config.token) : previous?.tokenCipher || null;
-  if (config.token && !tokenCipher) throw new Error("O teste passou, mas o sistema operacional não disponibilizou armazenamento seguro para proteger o token. O modelo não foi salvo.");
-  const savedProfile = { ...config, token: undefined, tokenCipher, testedAt: new Date().toISOString(), endpoint: completionUrl(config.url) };
+  const providerTokenCipher = provider === "nvidia"
+    ? settings.providerCredentials?.nvidia?.tokenCipher || (config.token ? encryptToken(config.token) : null)
+    : null;
+  const tokenCipher = provider === "nvidia" ? null : config.token ? encryptToken(config.token) : previous?.tokenCipher || null;
+  if (config.token && provider !== "nvidia" && !tokenCipher) throw new Error("O teste passou, mas o sistema operacional não disponibilizou armazenamento seguro para proteger o token. O modelo não foi salvo.");
+  if (provider === "nvidia" && !providerTokenCipher) throw new Error("O teste passou, mas o sistema operacional não disponibilizou armazenamento seguro para proteger o token NVIDIA. O modelo não foi salvo.");
+  const metadata = provider === "nvidia" ? inferMetadata(config.model) : null;
+  const savedProfile = {
+    ...config,
+    token: undefined,
+    tokenCipher,
+    ...(provider === "nvidia" ? { credentialProvider: "nvidia", tags: metadata.tags, damaScore: metadata.score, catalogSummary: metadata.summary } : {}),
+    health: { samples: 1, successes: 1, averageLatencyMs: Date.now() - startedAt, lastLatencyMs: Date.now() - startedAt, lastSuccessAt: new Date().toISOString(), lastFailureAt: null, lastErrorKind: null },
+    testedAt: new Date().toISOString(), endpoint: completionUrl(config.url),
+  };
   const profiles = [...(settings.modelProfiles || []).filter((item) => item.id !== config.id), savedProfile];
   const activeModelId = settings.activeModelId || config.id;
   const routing = { ...settings.modelRouting, primary: settings.modelRouting?.primary || config.id, fallbackOrder: settings.modelRouting?.fallbackOrder?.length ? settings.modelRouting.fallbackOrder : [config.id] };
   await updateSettings({
     modelProfiles: profiles,
+    ...(provider === "nvidia" ? { providerCredentials: { ...settings.providerCredentials, nvidia: { tokenCipher: providerTokenCipher, updatedAt: new Date().toISOString() } } } : {}),
     activeModelId,
     modelRouting: routing,
     damaEngine: { ...settings.damaEngine, baseModelId: settings.damaEngine?.baseModelId || config.id },
   });
   connectorConfig = { ...config };
   const { token: _token, tokenCipher: _cipher, ...publicProfile } = savedProfile;
-  return { ok: true, latencyMs: Date.now() - startedAt, model: { ...publicProfile, hasStoredToken: Boolean(tokenCipher) }, activeModelId, routing };
+  return { ok: true, latencyMs: Date.now() - startedAt, model: { ...publicProfile, hasStoredToken: Boolean(tokenCipher || providerTokenCipher) }, activeModelId, routing };
+});
+
+ipcMain.handle("models:nvidiaStatus", async () => {
+  const settings = await readSettings();
+  return {
+    configured: Boolean(resolveNvidiaToken(settings)),
+    modelCount: (settings.modelProfiles || []).filter((profile) => profile.provider === "nvidia").length,
+    automatic: settings.modelRouting?.mode === "auto",
+    credentialUpdatedAt: settings.providerCredentials?.nvidia?.updatedAt || null,
+  };
+});
+
+ipcMain.handle("models:nvidiaConnect", async (_event, rawToken) => {
+  const token = String(rawToken || "").trim();
+  if (!token) throw new Error("Informe o token da NVIDIA.");
+  const settings = await readSettings();
+  const models = await fetchNvidiaCatalog(token, settings);
+  if (!models.length) throw new Error("A NVIDIA aceitou o token, mas não retornou modelos de chat compatíveis.");
+  const tokenCipher = encryptToken(token);
+  if (!tokenCipher) throw new Error("O Windows não disponibilizou armazenamento seguro para proteger o token NVIDIA.");
+  const updatedAt = new Date().toISOString();
+  await updateSettings({ providerCredentials: { ...settings.providerCredentials, nvidia: { tokenCipher, updatedAt } } });
+  return { configured: true, modelCount: settings.modelProfiles.filter((profile) => profile.provider === "nvidia").length, automatic: settings.modelRouting?.mode === "auto", credentialUpdatedAt: updatedAt, models, fetchedAt: updatedAt, endpoint: `${NVIDIA_BASE_URL}/models` };
+});
+
+ipcMain.handle("models:nvidiaCatalog", async () => {
+  const settings = await readSettings();
+  const token = resolveNvidiaToken(settings);
+  if (!token) throw new Error("Conecte seu token NVIDIA uma vez para carregar o catálogo.");
+  const models = await fetchNvidiaCatalog(token, settings);
+  return { models, fetchedAt: new Date().toISOString(), endpoint: `${NVIDIA_BASE_URL}/models` };
+});
+
+ipcMain.handle("models:nvidiaAdd", async (_event, input) => {
+  const settings = await readSettings();
+  const token = resolveNvidiaToken(settings);
+  if (!token) throw new Error("Conecte seu token NVIDIA antes de adicionar modelos.");
+  const selectedIds = [...new Set((Array.isArray(input?.modelIds) ? input.modelIds : []).map(String))].slice(0, 12);
+  if (!selectedIds.length) throw new Error("Selecione pelo menos um modelo.");
+  const catalog = await fetchNvidiaCatalog(token, settings);
+  const available = new Map(catalog.map((model) => [model.id, model]));
+  const profiles = [...(settings.modelProfiles || [])];
+  const added = [];
+  const failures = [];
+  for (const modelId of selectedIds) {
+    const model = available.get(modelId);
+    if (!model) { failures.push({ modelId, error: "O modelo não está disponível neste token NVIDIA." }); continue; }
+    const existing = profiles.find((profile) => profile.provider === "nvidia" && profile.model === modelId);
+    const profileId = existing?.id || randomUUID();
+    const startedAt = Date.now();
+    try {
+      const response = await requestCompletion({ url: NVIDIA_BASE_URL, model: modelId, token, temperature: 0 }, [{ role: "user", content: "Responda apenas com: DAMA_OK" }], { temperature: 0 });
+      if (!String(response.content || response.reasoning_content || "").trim()) throw new Error("A API respondeu sem conteúdo utilizável.");
+      const latencyMs = Date.now() - startedAt;
+      const saved = {
+        id: profileId, name: model.name, provider: "nvidia", kind: "api", url: NVIDIA_BASE_URL, endpoint: completionUrl(NVIDIA_BASE_URL), model: modelId,
+        temperature: 0.2, maxTokens: null, tokenCipher: null, credentialProvider: "nvidia", tags: model.tags, damaScore: model.score,
+        catalogSummary: model.summary, testedAt: new Date().toISOString(), health: { samples: 1, successes: 1, averageLatencyMs: latencyMs, lastLatencyMs: latencyMs, lastSuccessAt: new Date().toISOString(), lastFailureAt: null, lastErrorKind: null },
+      };
+      const existingIndex = profiles.findIndex((profile) => profile.id === profileId);
+      if (existingIndex >= 0) profiles[existingIndex] = saved; else profiles.push(saved);
+      added.push({ id: profileId, modelId, latencyMs });
+    } catch (error) {
+      failures.push({ modelId, error: friendlyFailureMessage(error) });
+    }
+  }
+  if (!added.length) throw new Error(`Nenhum modelo passou no teste.\n${failures.map((item) => `${item.modelId}: ${item.error}`).join("\n")}`);
+  const addedIds = added.map((item) => item.id);
+  const fallbackOrder = [...new Set([...(settings.modelRouting?.fallbackOrder || []), ...addedIds])];
+  const modelRouting = normalizeModelRouting({ ...settings.modelRouting, mode: input?.automatic ? "auto" : settings.modelRouting?.mode, primary: settings.modelRouting?.primary || addedIds[0], fallbackOrder }, profiles, settings.activeModelId || addedIds[0]);
+  const providerTokenCipher = settings.providerCredentials?.nvidia?.tokenCipher || encryptToken(token);
+  if (!providerTokenCipher) throw new Error("Os modelos passaram no teste, mas o Windows não conseguiu proteger o token NVIDIA.");
+  const savedSettings = await updateSettings({
+    modelProfiles: profiles,
+    providerCredentials: { ...settings.providerCredentials, nvidia: { tokenCipher: providerTokenCipher, updatedAt: settings.providerCredentials?.nvidia?.updatedAt || new Date().toISOString() } },
+    activeModelId: settings.activeModelId || addedIds[0], modelRouting,
+    damaEngine: { ...settings.damaEngine, baseModelId: settings.damaEngine?.baseModelId || addedIds[0] },
+  });
+  return { ...(await publicModelsState(savedSettings)), added, failures };
 });
 ipcMain.handle("models:setActive", async (_event, id) => {
   const current = await readSettings();
@@ -2857,13 +3042,15 @@ ipcMain.handle("models:test", async (_event, id) => {
   }
   const profile = (settings.modelProfiles || []).find((item) => item.id === id);
   if (!profile) throw new Error("Modelo não encontrado.");
-  const token = decryptToken(profile.tokenCipher);
-  if (profile.tokenCipher && !token) throw new Error("Não foi possível desbloquear o token deste modelo.");
+  const token = tokenForProfile(profile, settings);
+  if ((profile.tokenCipher || profile.credentialProvider === "nvidia") && !token) throw new Error("Não foi possível desbloquear o token deste modelo.");
   const startedAt = Date.now();
   const message = await requestCompletion({ ...profile, token }, [{ role: "user", content: "Responda brevemente para confirmar a conexão." }], { temperature: 0 });
   if (!String(message.content || message.reasoning_content || "").trim()) throw new Error("A API respondeu sem conteúdo utilizável.");
   const testedAt = new Date().toISOString();
-  await updateSettings({ modelProfiles: settings.modelProfiles.map((item) => item.id === id ? { ...item, testedAt } : item) });
+  await recordModelHealth(id, true, Date.now() - startedAt);
+  const latest = await readSettings();
+  await updateSettings({ modelProfiles: latest.modelProfiles.map((item) => item.id === id ? { ...item, testedAt } : item) });
   return { ok: true, latencyMs: Date.now() - startedAt, testedAt };
 });
 ipcMain.handle("models:updateRouting", async (_event, routing) => {

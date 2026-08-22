@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("dama", {
-  apiVersion: 15,
+  apiVersion: 16,
   openProject: () => ipcRenderer.invoke("project:open"),
   createProject: (name) => ipcRenderer.invoke("project:create", name),
   selectProject: (projectPath) => ipcRenderer.invoke("workspace:selectProject", projectPath),
@@ -64,6 +64,10 @@ contextBridge.exposeInMainWorld("dama", {
   setActiveModel: (id) => ipcRenderer.invoke("models:setActive", id),
   updateModelRouting: (routing) => ipcRenderer.invoke("models:updateRouting", routing),
   removeModel: (id) => ipcRenderer.invoke("models:remove", id),
+  nvidiaStatus: () => ipcRenderer.invoke("models:nvidiaStatus"),
+  nvidiaCatalog: () => ipcRenderer.invoke("models:nvidiaCatalog"),
+  connectNvidia: (token) => ipcRenderer.invoke("models:nvidiaConnect", token),
+  addNvidiaModels: (input) => ipcRenderer.invoke("models:nvidiaAdd", input),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   updateSettings: (patch) => ipcRenderer.invoke("settings:update", patch),
   resetOnboarding: () => ipcRenderer.invoke("settings:resetOnboarding"),

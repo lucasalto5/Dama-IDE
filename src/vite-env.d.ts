@@ -31,9 +31,13 @@ type WorkspaceIndex = { projects: WorkspaceProject[]; conversations: Conversatio
 type SavedConversation = ConversationMeta & { data: Record<string, unknown> };
 type ConnectorInput = { kind: "api" | "local" | "cli"; url: string; token: string; model: string; temperature?: number; maxTokens?: number | null };
 type ConnectorState = { configured: boolean; kind?: string; url?: string; model?: string };
-type ModelProfile = { id: string; name: string; provider: string; kind: string; url: string; endpoint: string; model: string; temperature: number; maxTokens?: number | null; testedAt: string; hasStoredToken: boolean; builtIn?: boolean; available?: boolean; baseModelId?: string | null; baseModelName?: string | null };
-type ModelRouting = { mode: "single" | "team"; primary: string | null; build: string | null; review: string | null; orchestrate: string | null; reviewPasses: number; fallbackOrder: string[] };
+type ModelHealth = { samples: number; successes: number; averageLatencyMs: number; lastLatencyMs: number | null; lastSuccessAt: string | null; lastFailureAt: string | null; lastErrorKind?: string | null };
+type ModelProfile = { id: string; name: string; provider: string; kind: string; url: string; endpoint: string; model: string; temperature: number; maxTokens?: number | null; testedAt: string; hasStoredToken: boolean; credentialProvider?: string; tags?: string[]; damaScore?: number; catalogSummary?: string; health?: ModelHealth; builtIn?: boolean; available?: boolean; baseModelId?: string | null; baseModelName?: string | null };
+type ModelRouting = { mode: "single" | "team" | "auto"; primary: string | null; build: string | null; review: string | null; orchestrate: string | null; reviewPasses: number; fallbackOrder: string[] };
 type ModelsState = { models: ModelProfile[]; activeModelId: string | null; routing: ModelRouting };
+type NvidiaCatalogModel = { id: string; name: string; score: number; tags: string[]; summary: string; contextLength: number | null; added: boolean; curated: boolean };
+type NvidiaCatalogState = { models: NvidiaCatalogModel[]; fetchedAt: string; endpoint: string };
+type NvidiaProviderStatus = { configured: boolean; modelCount: number; automatic: boolean; credentialUpdatedAt: string | null };
 type DamaSettings = {
   onboardingCompleted: boolean;
   profile: { name: string; useCase: string; experience: string };
@@ -186,6 +190,10 @@ interface Window {
     setActiveModel: (id: string) => Promise<{ activeModelId: string; routing: ModelRouting }>;
     updateModelRouting: (routing: ModelRouting) => Promise<ModelRouting>;
     removeModel: (id: string) => Promise<ModelsState>;
+    nvidiaStatus: () => Promise<NvidiaProviderStatus>;
+    nvidiaCatalog: () => Promise<NvidiaCatalogState>;
+    connectNvidia: (token: string) => Promise<NvidiaProviderStatus & NvidiaCatalogState>;
+    addNvidiaModels: (input: { modelIds: string[]; automatic: boolean }) => Promise<ModelsState & { added: Array<{ id: string; modelId: string; latencyMs: number }>; failures: Array<{ modelId: string; error: string }> }>;
     getSettings: () => Promise<DamaSettings>;
     updateSettings: (patch: Partial<DamaSettings>) => Promise<DamaSettings>;
     resetOnboarding: () => Promise<DamaSettings>;

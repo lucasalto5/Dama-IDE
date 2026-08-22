@@ -302,7 +302,7 @@ function ConnectorDialog({ onClose, onSaved }: { onClose: () => void; onSaved: (
           <label>Nome na Dama<input name="name" defaultValue={preset.name} /></label>
           <label>URL base ou endpoint<input name="url" required defaultValue={preset.url} placeholder="https://api.exemplo.com/v1" /></label>
           <label>Identificador do modelo<input name="model" required placeholder={provider === "nvidia" ? "qwen/qwen3-coder-480b-a35b-instruct" : provider === "ollama" ? "qwen2.5-coder:latest" : "nome-do-modelo"} /></label>
-          <label>Token <span>{provider === "ollama" ? "normalmente não é necessário" : "será protegido pelo sistema operacional"}</span><input name="token" type="password" placeholder="••••••••••••" /></label>
+          <label>Token <span>{provider === "ollama" ? "normalmente não é necessário" : provider === "nvidia" ? "deixe vazio para reutilizar a chave NVIDIA salva" : "será protegido pelo sistema operacional"}</span><input name="token" type="password" placeholder="••••••••••••" /></label>
         </form>
         {provider === "nvidia" && <div className="endpoint-preview"><span>Endpoint final</span><code>https://integrate.api.nvidia.com/v1/chat/completions</code></div>}
         {testResult && <div className={`test-result ${testResult.startsWith("Testado") ? "success" : ""}`}>{testResult}</div>}
@@ -314,6 +314,88 @@ function ConnectorDialog({ onClose, onSaved }: { onClose: () => void; onSaved: (
       </section>
     </div>
   );
+}
+
+function NvidiaCatalogDialog({ onClose, onSaved }: { onClose: () => void; onSaved: (state: ModelsState) => void }) {
+  const [status, setStatus] = useState<NvidiaProviderStatus | null>(null);
+  const [catalog, setCatalog] = useState<NvidiaCatalogModel[]>([]);
+  const [token, setToken] = useState("");
+  const [filter, setFilter] = useState("Todos");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [automatic, setAutomatic] = useState(false);
+  const [editingToken, setEditingToken] = useState(false);
+  const [busy, setBusy] = useState<"loading" | "connecting" | "adding" | null>("loading");
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function loadCatalog() {
+    if (!window.dama) throw new Error("O catálogo NVIDIA exige o aplicativo desktop.");
+    const provider = await window.dama.nvidiaStatus();
+    setStatus(provider);
+    setAutomatic(provider.automatic);
+    if (!provider.configured) return;
+    const response = await window.dama.nvidiaCatalog();
+    setCatalog(response.models);
+  }
+
+  useEffect(() => {
+    let mounted = true;
+    void loadCatalog().catch((cause) => { if (mounted) setError(cause instanceof Error ? cause.message : String(cause)); }).finally(() => { if (mounted) setBusy(null); });
+    return () => { mounted = false; };
+  }, []);
+
+  async function connect() {
+    if (!window.dama) return;
+    setBusy("connecting"); setError(null); setResult(null);
+    try {
+      const response = await window.dama.connectNvidia(token);
+      setStatus(response);
+      setAutomatic(response.automatic);
+      setCatalog(response.models);
+      setToken("");
+      setEditingToken(false);
+      setResult(`${response.models.length} modelos compatíveis encontrados.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(null); }
+  }
+
+  async function addSelected() {
+    if (!window.dama || !selected.size) return;
+    setBusy("adding"); setError(null); setResult(null);
+    try {
+      const response = await window.dama.addNvidiaModels({ modelIds: [...selected], automatic });
+      onSaved(response);
+      setCatalog((current) => current.map((model) => selected.has(model.id) ? { ...model, added: true } : model));
+      setSelected(new Set());
+      setStatus((current) => current ? { ...current, modelCount: current.modelCount + response.added.length, automatic } : current);
+      setResult(`${response.added.length} ${response.added.length === 1 ? "modelo adicionado" : "modelos adicionados"}${response.failures.length ? ` · ${response.failures.length} não passou no teste` : ""}.`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(null); }
+  }
+
+  const filters = ["Todos", "Programação", "Agente", "Raciocínio", "Chat", "Rápido"];
+  const visibleModels = catalog.filter((model) => (filter === "Todos" || model.tags.includes(filter)) && (!query.trim() || `${model.name} ${model.id} ${model.tags.join(" ")}`.toLowerCase().includes(query.trim().toLowerCase())));
+  const needsToken = !status?.configured || editingToken;
+
+  return <div className="dialog-backdrop nvidia-backdrop" onMouseDown={onClose}><section className="dialog nvidia-catalog-dialog" onMouseDown={(event) => event.stopPropagation()}>
+    <header className="nvidia-catalog-header"><div><span className="eyebrow">Provedor conectado</span><h2>Catálogo NVIDIA</h2><p>Use uma única chave para adicionar e combinar os modelos disponíveis na sua conta.</p></div><div className="nvidia-header-actions">{status?.configured && <span className="nvidia-connected"><CheckCircle2 size={12} /> Token protegido</span>}<button className="icon-button" onClick={onClose}><X size={17} /></button></div></header>
+    {needsToken ? <div className="nvidia-token-panel"><div className="nvidia-token-mark"><ShieldCheck size={22} /></div><div><strong>{status?.configured ? "Trocar token da NVIDIA" : "Conectar à NVIDIA"}</strong><p>A chave é testada no catálogo oficial e guardada com a proteção do Windows. Ela não precisa ser repetida ao adicionar outros modelos.</p><label><span>API key</span><input autoFocus type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="nvapi-••••••••••••" onKeyDown={(event) => { if (event.key === "Enter") void connect(); }} /></label><div><button className="primary-button" disabled={busy === "connecting" || !token.trim()} onClick={() => void connect()}>{busy === "connecting" ? <LoaderCircle className="spin" size={13} /> : <Plug size={13} />} Validar e carregar</button>{status?.configured && <button className="quiet-button" onClick={() => setEditingToken(false)}>Manter token atual</button>}</div></div></div> : <>
+      <div className="nvidia-toolbar"><div className="model-provider-tabs"><button className="active">Modelos NVIDIA <span>{catalog.length}</span></button><button onClick={() => setEditingToken(true)}>Trocar token</button></div><label className="nvidia-search"><Search size={13} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar modelo" /></label></div>
+      <div className="nvidia-filter-row">{filters.map((item) => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}</button>)}</div>
+      <div className="nvidia-model-list">{busy === "loading" ? <div className="nvidia-empty"><LoaderCircle className="spin" size={20} />Consultando modelos disponíveis…</div> : visibleModels.map((model) => {
+        const checked = selected.has(model.id);
+        return <button key={model.id} className={`nvidia-model-row ${checked ? "selected" : ""}`} onClick={() => setSelected((current) => { const next = new Set(current); next.has(model.id) ? next.delete(model.id) : next.add(model.id); return next; })}>
+          <span className="nvidia-check">{checked || model.added ? <Check size={12} /> : null}</span>
+          <span className="nvidia-model-copy"><span><strong>{model.name}</strong>{model.added && <em>Adicionado</em>}</span><code>{model.id}</code><small>{model.summary}</small><span className="nvidia-tags">{model.tags.map((tag) => <i key={tag}>{tag}</i>)}</span></span>
+          <span className="nvidia-score"><span><strong>{model.score}%</strong><small>Afinidade com a Dama</small></span><span className="nvidia-score-track"><i style={{ width: `${model.score}%` }} /></span>{model.contextLength ? <em>{Math.round(model.contextLength / 1000)}k contexto</em> : <em>Contexto pela API</em>}</span>
+        </button>;
+      })}{!busy && !visibleModels.length && <div className="nvidia-empty"><Search size={19} />Nenhum modelo corresponde a este filtro.</div>}</div>
+      <div className="nvidia-automatic"><Toggle compact label="Seleção automática" detail="A Dama mede latência, sucessos e falhas neste computador para escolher o modelo mais saudável em cada tarefa." checked={automatic} onChange={setAutomatic} /><span><Activity size={12} /> Dados reais de uso local, sem ranking remoto inventado.</span></div>
+    </>}
+    {(error || result) && <div className={`test-result ${result ? "success" : ""}`}>{result || error}</div>}
+    <footer><span>{selected.size ? `${selected.size} selecionado${selected.size === 1 ? "" : "s"}` : status?.modelCount ? `${status.modelCount} já adicionado${status.modelCount === 1 ? "" : "s"}` : "Selecione um ou mais modelos"}</span><div><button className="quiet-button" onClick={onClose}>Fechar</button>{!needsToken && <button className="primary-button" disabled={!selected.size || busy === "adding"} onClick={() => void addSelected()}>{busy === "adding" ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />} Testar e adicionar</button>}</div></footer>
+  </section></div>;
 }
 
 function Onboarding({ initial, onComplete, onLanguageChange }: { initial: DamaSettings; onComplete: (settings: DamaSettings) => Promise<void>; onLanguageChange: (language: string) => void }) {
@@ -424,6 +506,8 @@ function SettingsCenter({ initial, modelsState, workspaceIndex, onModelsChange, 
   const [saved, setSaved] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [modelTestResults, setModelTestResults] = useState<Record<string, string>>({});
+  const [modelTab, setModelTab] = useState<"library" | "nvidia">("library");
+  const [nvidiaCatalogOpen, setNvidiaCatalogOpen] = useState(false);
   const [permissionsCleared, setPermissionsCleared] = useState(false);
   const [engineStatus, setEngineStatus] = useState<DamaEngineStatus | null>(null);
   const [engineBusy, setEngineBusy] = useState(false);
@@ -535,14 +619,16 @@ function SettingsCenter({ initial, modelsState, workspaceIndex, onModelsChange, 
   }
 
   return <div className="settings-backdrop"><section className="settings-center">
-    <aside><div className="settings-brand"><DinoLogo /><strong>Configurações</strong></div><nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon size={14} />{item.label}</button>; })}</nav><div className="settings-version">Dama 0.13.0 · preview</div></aside>
+    <aside><div className="settings-brand"><DinoLogo /><strong>Configurações</strong></div><nav>{sections.map((item) => { const Icon = item.icon; return <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}><Icon size={14} />{item.label}</button>; })}</nav><div className="settings-version">Dama 0.14.0 · preview</div></aside>
     <main><header><div><span className="eyebrow">Preferências</span><h2>{sections.find((item) => item.id === section)?.label}</h2></div><button className="icon-button" onClick={onClose}><X size={17} /></button></header><div className="settings-scroll" key={section}>
       {section === "remote" && <RemoteSettings state={remoteState} busy={remoteBusy} appUrl={draft.remote.appUrl} onAppUrlChange={(appUrl) => patch("remote", { appUrl })} onAction={runRemoteAction} />}
       {section === "appearance" && <SettingsGroup title="Leitura" description="Aumenta toda a interface mantendo as proporções do aplicativo."><Field label="Tamanho da interface"><select value={draft.appearance.scale || 1.12} onChange={(event) => patch("appearance", { ...draft.appearance, scale: Number(event.target.value) })}><option value={1}>100% · compacto</option><option value={1.12}>112% · recomendado</option><option value={1.25}>125% · grande</option><option value={1.4}>140% · muito grande</option></select></Field></SettingsGroup>}
-      {section === "models" && modelsState.models.length > 0 && <SettingsGroup title="Diagnóstico de conexão" description="Repete o teste usando o endpoint e o token protegido já salvos."><div className="model-list test-list">{modelsState.models.map((model) => <div key={model.id}><span className="model-live" /><div><strong>{model.name}</strong><em className={modelTestResults[model.id]?.startsWith("Conexão") ? "test-ok" : ""}>{modelTestResults[model.id] || "Pronto para testar"}</em></div><button className="quiet-button" disabled={testingModelId === model.id} onClick={() => testExistingModel(model.id)}>{testingModelId === model.id ? <LoaderCircle className="spin" size={12} /> : <Activity size={12} />} Testar</button></div>)}</div></SettingsGroup>}
+      {section === "models" && <div className="settings-model-tabs"><button className={modelTab === "library" ? "active" : ""} onClick={() => setModelTab("library")}><Bot size={13} /> Meus modelos</button><button className={modelTab === "nvidia" ? "active" : ""} onClick={() => setModelTab("nvidia")}><Cpu size={13} /> NVIDIA</button></div>}
+      {section === "models" && modelTab === "library" && modelsState.models.length > 0 && <SettingsGroup title="Diagnóstico de conexão" description="Repete o teste usando o endpoint e o token protegido já salvos."><div className="model-list test-list">{modelsState.models.map((model) => <div key={model.id}><span className="model-live" /><div><strong>{model.name}</strong><em className={modelTestResults[model.id]?.startsWith("Conexão") ? "test-ok" : ""}>{modelTestResults[model.id] || "Pronto para testar"}</em></div><button className="quiet-button" disabled={testingModelId === model.id} onClick={() => testExistingModel(model.id)}>{testingModelId === model.id ? <LoaderCircle className="spin" size={12} /> : <Activity size={12} />} Testar</button></div>)}</div></SettingsGroup>}
       {section === "profile" && <><SettingsGroup title="Seu perfil" description="Personaliza como a Dama conversa com você."><Field label="Como devemos chamar você?"><input value={draft.profile.name} onChange={(event) => patch("profile", { ...draft.profile, name: event.target.value })} /></Field><Field label="Finalidade principal"><select value={draft.profile.useCase} onChange={(event) => patch("profile", { ...draft.profile, useCase: event.target.value })}><option value="work">Trabalho</option><option value="product">Criar produtos</option><option value="learning">Aprender</option><option value="personal">Projetos pessoais</option></select></Field><Field label="Nível de detalhe"><select value={draft.profile.experience} onChange={(event) => patch("profile", { ...draft.profile, experience: event.target.value })}><option value="beginner">Explicativo</option><option value="intermediate">Equilibrado</option><option value="expert">Objetivo e técnico</option></select></Field></SettingsGroup><SettingsGroup title="Primeira execução" description="Revise novamente as perguntas de personalização."><div className="reset-onboarding"><div><strong>Refazer onboarding</strong><small>Suas integrações e projetos não serão removidos.</small></div><button className="secondary-button" onClick={onResetOnboarding}>Começar novamente</button></div></SettingsGroup></>}
       {section === "projects" && <><SettingsGroup title="Projetos vinculados" description="Remove um projeto da lista da Dama sem apagar sua pasta, arquivos ou conversas.">{workspaceIndex.projects.length ? <div className="settings-project-list">{workspaceIndex.projects.map((savedProject) => <div key={savedProject.id}><Folder size={15} /><span><strong>{savedProject.name}</strong><small>{savedProject.path}</small></span><button className="quiet-button" disabled={unlinkingProjectId === savedProject.id} onClick={async () => { setUnlinkingProjectId(savedProject.id); try { await onUnlinkProject(savedProject.id); } finally { setUnlinkingProjectId(null); } }}>{unlinkingProjectId === savedProject.id ? <LoaderCircle className="spin" size={12} /> : <Unlink size={12} />} Desvincular</button></div>)}</div> : <SettingsEmpty icon={<Folder size={20} />} text="Nenhum projeto vinculado à Dama." />}</SettingsGroup><SettingsGroup title="Seus arquivos continuam intactos" description="Desvincular afeta somente a lista local da Dama."><div className="settings-inline-note"><ShieldCheck size={14} /><span>A pasta permanece em seu computador. Se você abrir essa pasta novamente, o projeto e as conversas relacionadas voltam a aparecer.</span></div></SettingsGroup></>}
-      {section === "models" && <>
+      {section === "models" && modelTab === "nvidia" && <SettingsGroup title="NVIDIA NIM" description="Conecte uma vez e escolha modelos diretamente do catálogo disponível na sua conta."><div className="nvidia-provider-card"><span className="nvidia-provider-icon"><Cpu size={22} /></span><div><span className="eyebrow">Catálogo integrado</span><strong>Um token, vários modelos</strong><p>Filtre por programação, agente, raciocínio ou chat. Cada modelo é testado antes de entrar na sua lista.</p><span><ShieldCheck size={12} /> Chave protegida pelo Windows</span></div><button className="primary-button" onClick={() => setNvidiaCatalogOpen(true)}><ExternalLink size={13} /> Abrir catálogo</button></div></SettingsGroup>}
+      {section === "models" && modelTab === "library" && <>
         <SettingsGroup title="Modelos conectados" description="Somente modelos que passaram no teste aparecem aqui. Tokens persistidos usam a proteção do sistema operacional.">
           <button className="add-integration" onClick={onConfigureModel}><Plus size={14} /> Testar e adicionar modelo</button>
           {modelsState.models.length ? <div className="model-list">{modelsState.models.map((model) => <div key={model.id} className={modelsState.activeModelId === model.id ? "active" : ""}><span className={`model-live ${model.available === false ? "unavailable" : ""}`} /><div><strong>{model.name}{model.builtIn ? " · Integrado" : ""}</strong><small>{model.model}</small><em>{model.endpoint}</em></div>{modelsState.activeModelId === model.id ? <span className="active-label">Principal</span> : model.available === false ? <span className="active-label muted">Escolha uma base</span> : <button className="quiet-button" onClick={() => setActiveModel(model.id)}>Usar</button>}{!model.builtIn && <button className="icon-button" onClick={() => removeModel(model.id)}><Trash2 size={13} /></button>}</div>)}</div> : <SettingsEmpty icon={<Bot size={20} />} text="Nenhum modelo testado e salvo." />}
@@ -585,7 +671,7 @@ function SettingsCenter({ initial, modelsState, workspaceIndex, onModelsChange, 
       {section === "updates" && <><SettingsGroup title="Atualizações" description="Novas versões são verificadas em um canal assinado e instaladas pelo atualizador da Dama."><Toggle label="Atualização automática" detail="Baixa e instala a versão mais recente ao abrir a Dama" checked={draft.updates.automatic} onChange={(value) => patch("updates", { ...draft.updates, automatic: value })} /><Toggle label="Procurar ao iniciar" detail="Consulta o canal estável sempre que a Dama for aberta" checked={draft.updates.checkOnStartup} onChange={(value) => patch("updates", { ...draft.updates, checkOnStartup: value })} /><div className="update-settings-status"><div><strong>Versão instalada</strong><span>{updateState?.currentVersion || "0.13.0"}</span></div><div><strong>Estado</strong><span>{updateState?.status === "checking" ? "Procurando…" : updateState?.status === "available" ? `Versão ${updateState.version} disponível` : updateState?.status === "downloading" ? `Baixando · ${Math.round(updateState.percent)}%` : updateState?.status === "downloaded" || updateState?.status === "installing" ? "Pronta para instalar" : updateState?.status === "current" ? "Atualizada" : updateState?.status === "unsupported" ? "Disponível no aplicativo instalado" : updateState?.status === "error" ? "Falha na verificação" : "Pronta para verificar"}</span></div></div>{updateState?.error && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{updateState.error}</span></div>}{updateState?.rollbackError && <div className="settings-inline-warning"><AlertCircle size={14} /><span>{updateState.rollbackError}</span></div>}<div className="update-settings-actions"><button className="secondary-button" disabled={updateState?.status === "checking" || updateState?.status === "downloading"} onClick={() => void window.dama?.checkForUpdates()}>{updateState?.status === "checking" ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />} Procurar atualização</button><button className="quiet-button" disabled={updateState?.rollbackStatus === "checking" || updateState?.rollbackStatus === "downloading" || updateState?.status === "installing"} onClick={() => void window.dama?.rollbackUpdate()}>{updateState?.rollbackStatus === "checking" || updateState?.rollbackStatus === "downloading" ? <LoaderCircle className="spin" size={13} /> : <Undo2 size={13} />} Restaurar versão anterior</button></div></SettingsGroup></>}
       {section === "privacy" && <><SettingsGroup title="Dados e privacidade" description="Projetos e conversas ficam somente neste computador. A Dama não possui telemetria nem envio automático de diagnóstico."><Toggle label="Histórico local" detail="Salvar conversas para continuar depois e alternar entre projetos" checked={draft.privacy.localHistory} onChange={(value) => patch("privacy", { ...draft.privacy, localHistory: value })} /><Toggle disabled label="Telemetria anônima" detail="Indisponível e desligada" checked={false} onChange={() => {}} /><Toggle disabled label="Relatórios de diagnóstico" detail="Indisponível e desligado" checked={false} onChange={() => {}} /></SettingsGroup><SettingsGroup title="Acesso ao computador" description="Controle geral das autorizações usadas pelas ferramentas do agente."><Toggle label="Acesso total ao computador" detail="Permite comandos, instalações, downloads, Git, MCP e controle assistido sem mostrar um card a cada ação." checked={draft.permissions.fullAccess} onChange={(value) => { patch("permissions", { fullAccess: value }); if (value) patch("computerUse", { enabled: true }); }} /><div className="settings-inline-warning"><AlertCircle size={14} /><span>Desligado por padrão. Ative somente para modelos e projetos em que você confia. Limites de caminho, proteção de credenciais e validações destrutivas continuam ativos.</span></div></SettingsGroup><SettingsGroup title="Permissões de ferramentas" description="Autorizações de chat, projeto e comandos específicos ficam salvas apenas neste computador."><div className="reset-onboarding"><div><strong>{permissionsCleared ? "Permissões revogadas" : "Revogar permissões persistentes"}</strong><small>Na próxima operação protegida, o agente voltará a mostrar o card de autorização.</small></div><button className="secondary-button" onClick={async () => { await window.dama?.clearToolApprovals(); setPermissionsCleared(true); }}>Revogar todas</button></div></SettingsGroup></>}
     </div><footer><span>{saved ? <><Check size={12} /> Preferências salvas</> : "Alterações ficam locais"}</span><button className="primary-button" onClick={save} disabled={saving}>{saving ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />} Salvar alterações</button></footer></main>
-  </section></div>;
+  </section>{nvidiaCatalogOpen && <NvidiaCatalogDialog onClose={() => setNvidiaCatalogOpen(false)} onSaved={onModelsChange} />}</div>;
 }
 
 function RemoteSettings({ state, busy, appUrl, onAppUrlChange, onAction }: { state: RemoteState | null; busy: boolean; appUrl: string; onAppUrlChange: (value: string) => void; onAction: (action: "start" | "stop") => Promise<void> }) {
@@ -619,12 +705,13 @@ function ModelRoutingSettings({ modelsState, onUpdate, onSetActive }: { modelsSt
     await onUpdate({ ...routing, mode: "single", primary: id });
   }
   return <>
-    <SettingsGroup title="Como os modelos trabalham" description="Use apenas um modelo para tudo ou monte uma equipe com funções separadas.">
+    <SettingsGroup title="Como os modelos trabalham" description="Use um modelo, monte uma equipe ou deixe a Dama escolher pela saúde real das conexões.">
       <div className="model-mode-switch">
         <button className={mode === "single" ? "active" : ""} onClick={() => void onUpdate({ ...routing, mode: "single" })}><Cpu size={16} /><span><strong>Modelo único</strong><small>O mesmo modelo planeja, implementa e revisa</small></span><Check size={13} /></button>
         <button className={mode === "team" ? "active" : ""} onClick={() => void onUpdate({ ...routing, mode: "team" })}><Sparkles size={16} /><span><strong>Equipe de modelos</strong><small>Distribua cada etapa entre especialistas</small></span><Check size={13} /></button>
+        <button className={mode === "auto" ? "active" : ""} onClick={() => void onUpdate({ ...routing, mode: "auto" })}><Activity size={16} /><span><strong>Automático</strong><small>Escolhe por capacidade, latência e estabilidade</small></span><Check size={13} /></button>
       </div>
-      {mode === "single" ? <div className="routing-grid single-routing"><Field label="Modelo para tudo"><select value={primaryId} onChange={(event) => void chooseSingleModel(event.target.value)}>{modelsState.models.map((model) => <option key={model.id} value={model.id} disabled={model.available === false}>{model.name} · {model.model}</option>)}</select></Field><div className="routing-explainer"><Bot size={15} /><span>Esse modelo conversa, cria o plano, programa e faz até {routing.reviewPasses} {routing.reviewPasses === 1 ? "revisão" : "revisões"} antes da entrega.</span></div></div> : <div className="routing-grid team-routing">
+      {mode === "single" ? <div className="routing-grid single-routing"><Field label="Modelo para tudo"><select value={primaryId} onChange={(event) => void chooseSingleModel(event.target.value)}>{modelsState.models.map((model) => <option key={model.id} value={model.id} disabled={model.available === false}>{model.name} · {model.model}</option>)}</select></Field><div className="routing-explainer"><Bot size={15} /><span>Esse modelo conversa, cria o plano, programa e faz até {routing.reviewPasses} {routing.reviewPasses === 1 ? "revisão" : "revisões"} antes da entrega.</span></div></div> : mode === "auto" ? <div className="routing-grid automatic-routing"><div className="routing-explainer"><Activity size={15} /><span>A Dama ordena os modelos em cada chamada pela afinidade com a tarefa, tempo de resposta medido neste computador e histórico de falhas. Se um ficar lento ou instável, o próximo assume.</span></div><div className="automatic-health-list">{routing.fallbackOrder.map((id) => { const model = modelsState.models.find((item) => item.id === id); if (!model) return null; const success = model.health?.samples ? Math.round(model.health.successes / model.health.samples * 100) : null; return <div key={id}><span className="model-live" /><strong>{model.name}</strong><small>{model.health?.averageLatencyMs ? `${model.health.averageLatencyMs} ms` : "sem medição"}</small><em>{success === null ? "aguardando uso" : `${success}% de sucesso`}</em></div>; })}</div></div> : <div className="routing-grid team-routing">
         <Field label="Chat principal"><select value={routing.primary || ""} onChange={(event) => void onUpdate({ ...routing, primary: event.target.value || null })}><option value="">Usar modelo principal</option>{modelsState.models.map((model) => <option key={model.id} value={model.id} disabled={model.available === false}>{model.name} · {model.model}</option>)}</select></Field>
         {roleFields.map((role) => <label className="settings-field role-field" key={role.key}><span><strong>{role.label}</strong><small>{role.detail}</small></span><select value={routing[role.key] || ""} onChange={(event) => void onUpdate({ ...routing, [role.key]: event.target.value || null })}><option value="">Usar modelo principal</option>{modelsState.models.map((model) => <option key={model.id} value={model.id} disabled={model.available === false}>{model.name} · {model.model}</option>)}</select></label>)}
         <div className="routing-explainer"><Sparkles size={15} /><span>O revisor recebe os arquivos finais. Se encontrar problemas, as observações voltam ao Programador antes da entrega.</span></div>
@@ -840,10 +927,10 @@ export default function App() {
             });
             setAgentPlans((current) => current.some((item) => item.runId === recovery.payload.runId) ? current : [...current, { id: recovery.payload.runId, runId: recovery.payload.runId, prompt: recovery.payload.prompt, plan: recovery.payload.plan, status: "error", result: null, baseChangeSetId: recovery.payload.baseChangeSetId, at: recovery.startedAt }]);
           }
-        } else if (window.dama.apiVersion !== 15) {
+        } else if (window.dama.apiVersion !== 16) {
           setError("A interface foi atualizada, mas o processo desktop ainda é da versão anterior. Feche a Dama completamente e abra novamente para ativar projetos e conversas.");
         }
-        if (window.dama.apiVersion !== 15) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para ativar recuperação e permissões.");
+        if (window.dama.apiVersion !== 16) setError("A Dama foi atualizada. Feche o aplicativo completamente e abra novamente para ativar o catálogo NVIDIA.");
       }
     })().catch((cause) => setError(cause instanceof Error ? cause.message : String(cause))).finally(() => {
       window.clearTimeout(splashTimer);

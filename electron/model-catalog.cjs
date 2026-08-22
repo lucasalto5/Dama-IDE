@@ -3,7 +3,7 @@ const DAMA_AI_MODEL_ID = "builtin:dama-ai";
 function publicRegularModels(settings) {
   return (settings.modelProfiles || []).map(({ tokenCipher, ...profile }) => ({
     ...profile,
-    hasStoredToken: Boolean(tokenCipher),
+    hasStoredToken: Boolean(tokenCipher || profile.credentialProvider === "nvidia" && settings.providerCredentials?.nvidia?.tokenCipher),
   }));
 }
 

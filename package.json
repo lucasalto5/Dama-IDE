@@ -2,7 +2,7 @@
   "name": "dama-ide",
   "private": true,
   "type": "module",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "author": "Dama",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
@@ -21,6 +21,7 @@
     "test:notes": "node scripts/test-notes.mjs",
     "test:engine": "node scripts/test-dama-engine.mjs",
     "test:models": "node scripts/test-model-catalog.mjs",
+    "test:nvidia": "node scripts/test-nvidia-catalog.mjs",
     "test:preview": "node scripts/test-preview-inspector.mjs",
     "test:json": "node scripts/test-model-json.mjs",
     "test:file-content": "node scripts/test-file-content.mjs",
@@ -33,7 +34,7 @@
     "test:remote": "node scripts/test-remote-server.mjs",
     "verify:remote-tunnel": "node scripts/test-remote-tunnel.mjs",
     "verify:update": "node scripts/verify-update-release.mjs",
-    "test:syntax": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/dama-engine.cjs && node --check electron/dama-quota.cjs && node --check electron/model-catalog.cjs && node --check electron/preview-inspector.cjs && node --check electron/model-json.cjs && node --check electron/file-content.cjs && node --check electron/conversation-compact.cjs && node --check electron/update-manager.cjs && node --check electron/professional-tools.cjs && node --check electron/development-tools.cjs && node --check electron/lsp-client.cjs && node --check electron/request-routing.cjs && node --check electron/remote-server.cjs",
+    "test:syntax": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/dama-engine.cjs && node --check electron/dama-quota.cjs && node --check electron/model-catalog.cjs && node --check electron/nvidia-catalog.cjs && node --check electron/preview-inspector.cjs && node --check electron/model-json.cjs && node --check electron/file-content.cjs && node --check electron/conversation-compact.cjs && node --check electron/update-manager.cjs && node --check electron/professional-tools.cjs && node --check electron/development-tools.cjs && node --check electron/lsp-client.cjs && node --check electron/request-routing.cjs && node --check electron/remote-server.cjs",
     "preview": "vite preview",
     "package:dir": "npm run build && electron-builder --dir --win --x64",
     "package:component": "node scripts/build-dama-component.mjs",
@@ -85,7 +86,7 @@
       }
     ],
     "releaseInfo": {
-      "releaseName": "Dama 0.13.0 — contexto leve e ferramentas profissionais",
+      "releaseName": "Dama 0.14.0 — catálogo NVIDIA e seleção automática",
       "releaseNotesFile": "build/release-notes.md"
     },
     "files": [
